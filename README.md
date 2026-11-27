@@ -10,7 +10,9 @@ transactions, a debt payoff planner, and a grocery price planner.
   this month's spending against plan, and a few observations.
 - **Budget**: zero-based envelope budgeting by week (weeks start Friday).
   Income goes into "Left to assign"; you assign it to envelopes until that
-  reaches $0. Unspent money stays in its envelope and carries forward.
+  reaches $0. Unspent money stays in its envelope and carries forward. Groups
+  collapse to a one-line total, and envelopes with nothing going on are
+  tucked away until you ask for them.
 - **Transactions**: add spending by hand or import a bank's CSV file. The app
   remembers which envelope each payee goes in, and re-importing a file skips
   rows it already has. One purchase can be split across several envelopes.

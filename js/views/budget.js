@@ -6,6 +6,32 @@ import * as db from '../db.js';
 
 let week = weekStart(today());
 let editing = false;
+let showQuiet = false; // envelopes with nothing going on are tucked away
+let incomeOpen = false;
+
+// Which groups are expanded, remembered on this device. '*' means all.
+const OPEN_KEY = 'budget-open';
+function openGroups() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(OPEN_KEY)) || []);
+  } catch {
+    return new Set();
+  }
+}
+function saveOpenGroups(open) {
+  try {
+    localStorage.setItem(OPEN_KEY, JSON.stringify([...open]));
+  } catch {
+    // Not remembered, that's all.
+  }
+}
+
+// Whole dollars, for the small print where cents are just clutter.
+const whole = (n) => '$' + Math.round(n).toLocaleString('en-US');
+
+// Nothing planned, nothing in it, nothing happening: not worth a row.
+const isQuiet = (row, target) =>
+  target.amount === 0 && Math.abs(row.available) < 0.005 && row.assigned === 0 && row.assignedMonth === 0 && row.spent === 0;
 
 const STARTER = [
   ['Giving', ['Tithe']],
@@ -124,24 +150,28 @@ function renderEnvelope(e, row, target) {
     );
   }
 
-  const plan = target.amount;
+  // One compact line: name, the box to assign into, and what's available.
+  // Spending and progress sit underneath in small print, only when there's
+  // something to say.
+  const notes = [
+    row.spent !== 0 && `Spent ${money(row.spent)}`,
+    target.amount > 0 && `${whole(row.assignedMonth)} of ${whole(target.amount)}/mo`,
+  ].filter(Boolean);
   return h(
     'div',
     { class: 'envelope' },
-    h(
-      'div',
-      { class: 'envelope-name' },
-      h('div', {}, e.name),
-      plan > 0 && h('div', { class: 'muted small' }, `${money(row.assignedMonth)} of ${money(plan)} this month`)
-    ),
-    numberField('Assign', row.assigned || '', (v) => setAssigned(e.id, v), { key: `assign-${e.id}`, placeholder: '0.00' }),
-    h('div', { class: 'stat' }, h('span', {}, 'Spent'), h('div', {}, money(row.spent))),
-    h(
-      'div',
-      { class: 'stat' },
-      h('span', {}, 'Available'),
-      h('div', {}, h('span', { class: 'pill ' + (row.available < -0.004 ? 'neg' : row.available > 0.004 ? 'pos' : 'muted') }, money(row.available)))
-    )
+    h('div', { class: 'envelope-name' }, h('div', {}, e.name), notes.length > 0 && h('div', { class: 'muted small' }, notes.join(' · '))),
+    h('input', {
+      type: 'number',
+      step: 'any',
+      inputMode: 'decimal',
+      placeholder: '0.00',
+      'aria-label': `Assign to ${e.name}`,
+      value: row.assigned || '',
+      data: { key: `assign-${e.id}` },
+      onchange: (ev) => setAssigned(e.id, num(ev.target.value)),
+    }),
+    h('span', { class: 'pill ' + (row.available < -0.004 ? 'neg' : row.available > 0.004 ? 'pos' : 'muted'), title: 'Available' }, money(row.available))
   );
 }
 
@@ -187,29 +217,32 @@ export function renderBudget() {
           ? 'Give every dollar a job: keep assigning until this reaches $0.00.'
           : 'Every dollar has a job.'
     ),
-    h(
-      'form',
-      {
-        class: 'income-form',
-        onsubmit: (ev) => {
-          ev.preventDefault();
-          const amount = num(incomeAmount.value);
-          if (!(amount > 0)) return;
-          const now = today();
-          db.put('tx', {
-            date: now >= week && now <= addDays(week, 6) ? now : week,
-            payee: incomeFrom.value.trim(),
-            amount,
-            envelopeId: 'income',
-            created: Date.now(),
-          });
-          rerender();
-        },
-      },
-      incomeAmount,
-      incomeFrom,
-      h('button', { type: 'submit' }, 'Add income')
-    ),
+    incomeOpen
+      ? h(
+          'form',
+          {
+            class: 'income-form',
+            onsubmit: (ev) => {
+              ev.preventDefault();
+              const amount = num(incomeAmount.value);
+              if (!(amount > 0)) return;
+              const now = today();
+              db.put('tx', {
+                date: now >= week && now <= addDays(week, 6) ? now : week,
+                payee: incomeFrom.value.trim(),
+                amount,
+                envelopeId: 'income',
+                created: Date.now(),
+              });
+              incomeOpen = false;
+              rerender();
+            },
+          },
+          incomeAmount,
+          incomeFrom,
+          h('button', { type: 'submit' }, 'Add income')
+        )
+      : h('button', { class: 'link', onclick: () => { incomeOpen = true; rerender(); } }, '+ Add income'),
     budget.incomeThisWeek > 0 && h('p', { class: 'muted small' }, `Income this week: ${money(budget.incomeThisWeek)}`)
   );
 
@@ -221,15 +254,52 @@ export function renderBudget() {
       `${budget.needsEnvelope} transaction${budget.needsEnvelope === 1 ? ' needs' : 's need'} an envelope ›`
     );
 
-  const groups = [...grouped(envelopes)].map(([name, list]) => {
-    const available = list.reduce((sum, e) => sum + budget.rows.get(e.id).available, 0);
+  const open = openGroups();
+  let quietCount = 0;
+  const groups = [...grouped(envelopes)].map(([name, all]) => {
+    const quiet = all.filter((e) => isQuiet(budget.rows.get(e.id), targets.get(e.id)));
+    quietCount += quiet.length;
+    // While editing, show everything so anything can be renamed or removed.
+    const list = editing || showQuiet ? all : all.filter((e) => !quiet.includes(e));
+    if (list.length === 0) return null;
+
+    const available = all.reduce((sum, e) => sum + budget.rows.get(e.id).available, 0);
+    const assigned = all.reduce((sum, e) => sum + budget.rows.get(e.id).assigned, 0);
+    const overspent = all.some((e) => budget.rows.get(e.id).available < -0.004);
     return h(
-      'section',
-      { class: 'card group' },
-      h('h3', {}, h('span', {}, name), h('span', { class: 'muted' }, money(available))),
+      'details',
+      {
+        class: 'card group',
+        open: editing || open.has('*') || open.has(name) || undefined,
+        ontoggle: (ev) => {
+          // Remember the choice. "All open" becomes a plain list first so
+          // closing one group doesn't close the rest.
+          const now = openGroups();
+          if (now.has('*')) {
+            now.delete('*');
+            for (const g of grouped(envelopes).keys()) now.add(g);
+          }
+          if (ev.target.open) now.add(name);
+          else now.delete(name);
+          saveOpenGroups(now);
+        },
+      },
+      h(
+        'summary',
+        {},
+        h('span', { class: 'group-name' }, name, h('span', { class: 'muted small' }, ` ${list.length}`)),
+        h(
+          'span',
+          { class: 'group-totals' },
+          assigned !== 0 && h('span', { class: 'muted small' }, `${money(assigned)} assigned`),
+          h('span', { class: 'pill ' + (overspent ? 'neg' : available > 0.004 ? 'pos' : 'muted') }, money(available))
+        )
+      ),
       list.map((e) => renderEnvelope(e, budget.rows.get(e.id), targets.get(e.id)))
     );
   });
+  const groupNames = [...grouped(envelopes).keys()];
+  const allOpen = open.has('*') || groupNames.every((g) => open.has(g));
 
   const name = h('input', { type: 'text', placeholder: 'New envelope', required: true });
   const group = h('input', { type: 'text', placeholder: 'Group', list: 'groups' });
@@ -253,6 +323,14 @@ export function renderBudget() {
     nav,
     summary,
     todo,
+    !editing &&
+      h(
+        'div',
+        { class: 'budget-tools' },
+        h('button', { class: 'link', onclick: () => { saveOpenGroups(allOpen ? [] : ['*']); rerender(); } }, allOpen ? 'Collapse all' : 'Expand all'),
+        quietCount > 0 &&
+          h('button', { class: 'link', onclick: () => { showQuiet = !showQuiet; rerender(); } }, showQuiet ? 'Hide unused envelopes' : `Show ${quietCount} unused`)
+      ),
     ...groups,
     editing && h('p', { class: 'muted small' }, 'Monthly target is optional: roughly what you mean to put in that envelope each month. If bills are paid from an envelope, its target is worked out from them (a $72 bill every 3 months counts as $24 a month) and is changed on the Bills tab. It moves no money. It only lets the app show how far along you are ("$200 of $440 this month") and where the gaps are on the Overview.'),
     h('datalist', { id: 'groups' }, [...grouped(envelopes).keys()].map((g) => h('option', { value: g }))),
