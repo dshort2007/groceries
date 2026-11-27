@@ -64,6 +64,10 @@ test('snowball pays the smallest balance first, avalanche the highest rate', () 
   assert.equal(avalanche.order[0].name, 'High-rate');
   assert.ok(avalanche.totalInterest < snowball.totalInterest);
   assert.equal(snowball.monthly, 415);
+  const withIds = debts.map((d, i) => ({ ...d, id: 'd' + i }));
+  assert.deepEqual(payoffPlan(withIds, 200, 'snowball').attack, ['d1', 'd2', 'd0']);
+  assert.deepEqual(payoffPlan(withIds, 200, 'avalanche').attack, ['d2', 'd1', 'd0']);
+  assert.equal(payoffPlan(withIds, 200, 'avalanche').order[0].id, 'd2');
 });
 
 test('a single debt matches a hand calculation', () => {

@@ -5,7 +5,7 @@
 import { h, icon, money, goTo } from '../ui.js';
 import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets } from '../money.js';
 import { bankSummary } from './bank.js';
-import { when, span, SETTINGS_ID } from './debts.js';
+import { when, span, SETTINGS_ID, debtStrategy } from './debts.js';
 import * as db from '../db.js';
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -133,8 +133,8 @@ function suggestions(d) {
     if (priciest) {
       out.push(`Your most expensive debt is ${priciest.name} at ${priciest.apr}%. Each $100 left on it costs about ${money(priciest.apr / 12)} a month in interest.`);
     }
-    const base = payoffPlan(d.owing, d.extra, 'snowball');
-    const more = payoffPlan(d.owing, d.extra + 100, 'snowball');
+    const base = payoffPlan(d.owing, d.extra, debtStrategy());
+    const more = payoffPlan(d.owing, d.extra + 100, debtStrategy());
     if (!base.never && !more.never && base.months > more.months) {
       out.push(`Another $100 a month toward debt would have you debt-free ${span(base.months - more.months)} sooner and save about ${money(base.totalInterest - more.totalInterest)} in interest.`);
     }
@@ -194,7 +194,7 @@ export function renderOverview() {
   const left = d.budget.leftToAssign;
   const dueTotal = d.sum([...d.overdue, ...d.dueSoon], (b) => Number(b.amount) || 0);
   const debtTotal = d.sum(d.owing, (x) => x.balance);
-  const plan = d.owing.length ? payoffPlan(d.owing, d.extra, 'snowball') : null;
+  const plan = d.owing.length ? payoffPlan(d.owing, d.extra, debtStrategy()) : null;
 
   const hour = new Date().getHours();
   const hero = h(

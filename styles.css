@@ -532,3 +532,20 @@ details.group[open] { padding-bottom: 6px; }
   details.group .envelope.editing { grid-template-columns: 1fr 1fr; }
   .group-totals .small { display: none; }
 }
+
+/* ---------- Debts ---------- */
+.debt-row { gap: 6px; }
+.debt-row.cleared { opacity: 0.6; }
+.rank { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 8px; border-radius: 50%; background: var(--field); color: var(--muted); font-size: 0.75rem; font-weight: 700; }
+.badge.good { background: var(--accent-soft); color: var(--accent-strong); }
+.debt-bill { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; }
+button.link.plain { padding: 0; text-align: left; color: inherit; text-decoration-color: var(--line); }
+.warn-box { background: var(--warn-soft); flex: 1 1 100%; }
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0 10px; }
+.choice { display: grid; gap: 2px; text-align: left; padding: 12px; border-radius: 14px; }
+.choice.on { border-color: var(--accent); background: var(--accent-soft); }
+.field.inline.wide { flex: 1 1 100%; }
+.field.inline.wide > span { flex: 1; min-width: 0; }
+.field.inline.wide input { width: 110px; }
+.left .meter { margin: 8px 0 2px; }
+@media (max-width: 420px) { .choices { grid-template-columns: 1fr; } }

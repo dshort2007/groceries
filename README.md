@@ -23,9 +23,11 @@ transactions, a debt payoff planner, and a grocery price planner.
   amount changes (utilities) take this month's amount right on the row and
   estimate the next one from recent payments. When a matching payment shows
   up among your transactions, the bill offers to mark itself paid.
-- **Debts**: balances, rates and minimums, with a side-by-side comparison of
-  paying smallest-balance-first (snowball) and highest-rate-first (avalanche).
-  Link a debt to an envelope and payments from it bring the balance down.
+- **Debts**: total owed and the estimated debt-free date, a choice between
+  paying smallest-balance-first (snowball) and highest-rate-first
+  (avalanche), and the debts listed in the order that plan pays them off.
+  Each shows its next bill, flags a bill below the minimum, and comes down
+  as payments are recorded from its envelope.
 - **More > Groceries**: compare prices across stores and find the cheapest plan.
 - **More > Side business**: log each job and see how it divides between the
   business, family savings and personal pay, by percentages you set.

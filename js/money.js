@@ -232,6 +232,7 @@ export function payoffPlan(debts, extra, strategy) {
   const work = debts
     .filter((d) => Number(d.balance) > 0)
     .map((d) => ({
+      id: d.id,
       name: d.name,
       balance: Number(d.balance),
       rate: (Number(d.apr) || 0) / 100 / 12,
@@ -244,12 +245,13 @@ export function payoffPlan(debts, extra, strategy) {
   );
 
   const monthly = work.reduce((sum, d) => sum + d.min, 0) + (Number(extra) || 0);
+  const attack = work.map((d) => d.id); // which debt gets the extra money, in turn
   const order = [];
   let totalInterest = 0;
   let months = 0;
 
   while (work.some((d) => d.balance > 0)) {
-    if (++months > 720) return { never: true, monthly: round2(monthly) };
+    if (++months > 720) return { never: true, monthly: round2(monthly), attack };
     let pool = monthly;
     for (const d of work) {
       if (d.balance <= 0) continue;
@@ -270,11 +272,11 @@ export function payoffPlan(debts, extra, strategy) {
       if (d.balance < 0.005 && !d.done) {
         d.balance = 0;
         d.done = true;
-        order.push({ name: d.name, month: months });
+        order.push({ id: d.id, name: d.name, month: months });
       }
     }
   }
-  return { months, totalInterest: round2(totalInterest), order, monthly: round2(monthly) };
+  return { months, totalInterest: round2(totalInterest), order, monthly: round2(monthly), attack };
 }
 
 // ---------- Reading bank files ----------
