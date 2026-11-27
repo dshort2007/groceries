@@ -9,10 +9,15 @@ transactions, a debt payoff planner, and a grocery price planner.
   Income goes into "Left to assign"; you assign it to envelopes until that
   reaches $0. Unspent money stays in its envelope and carries forward.
 - **Transactions**: add spending by hand or import a bank's CSV file. The app
-  remembers which envelope each payee goes in. Re-importing a file skips rows
-  it already has.
+  remembers which envelope each payee goes in, and re-importing a file skips
+  rows it already has. One purchase can be split across several envelopes.
+  Accounts show a running balance you can check against the bank.
+- **Bills**: what's due this week and in the next 30 days, which account it
+  comes from, and whether its envelope has enough in it. Marking a bill paid
+  records the transaction and moves it to its next due date.
 - **Debts**: balances, rates and minimums, with a side-by-side comparison of
   paying smallest-balance-first (snowball) and highest-rate-first (avalanche).
+  Link a debt to an envelope and payments from it bring the balance down.
 - **Groceries**: compare prices across stores and find the cheapest plan.
 
 Each family member signs in with their own login. Changes sync between
@@ -46,7 +51,7 @@ a spreadsheet, bank file or setup file to this repository.
 |---|---|
 | `index.html`, `styles.css` | The page and how it looks |
 | `js/app.js` | Sign-in, the tabs, redrawing the screen |
-| `js/views/` | One file per tab: budget, transactions, debts, groceries |
+| `js/views/` | One file per tab, plus `shared.js` for pickers they share |
 | `js/money.js` | Budget math, debt payoff math, reading bank files |
 | `js/optimizer.js` | Grocery best-plan math |
 | `js/db.js` | Storing data and syncing it with Supabase |
@@ -57,8 +62,6 @@ a spreadsheet, bank file or setup file to this repository.
 
 ## Not built yet
 
-- Bills calendar (due dates and pay-from accounts)
 - Automatic bank connections
-- Account balances and reconciling against the bank
-- Splitting one transaction across envelopes
-- Linking debt payments to the debt balances
+- Adding interest to debt balances automatically
+- Reports (spending over time)

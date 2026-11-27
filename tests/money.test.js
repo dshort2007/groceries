@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -102,4 +102,67 @@ test('explains what is wrong with an unreadable file', () => {
 test('payee names are simplified for remembering envelopes', () => {
   assert.equal(payeeKey('KROGER #432 NEWNAN GA'), payeeKey('Kroger #118 Newnan'));
   assert.equal(payeeKey('WAL-MART #1234'), 'WAL MART');
+});
+
+test('a split purchase comes out of each envelope it was split across', () => {
+  const split = { date: '2026-11-28', amount: -80, envelopeId: 'split', splits: [{ envelopeId: 'groc', amount: -60 }, { envelopeId: 'gas', amount: -20 }] };
+  assert.equal(parts(split).length, 2);
+  const b = budgetFor({ ...data, transactions: [...data.transactions, split] }, '2026-11-27');
+  assert.equal(b.rows.get('groc').available, 30); // was 90
+  assert.equal(b.rows.get('gas').available, 30); // was 50
+  assert.equal(b.needsEnvelope, 1); // unchanged: every piece has an envelope
+
+  const half = { ...split, splits: [{ envelopeId: 'groc', amount: -60 }, { envelopeId: '', amount: -20 }] };
+  assert.equal(budgetFor({ ...data, transactions: [half] }, '2026-11-27').needsEnvelope, 1);
+});
+
+test('money already in the bank is available to assign; card debt is not', () => {
+  const accounts = [
+    { id: 'chk', type: 'checking', startBalance: 400, startDate: '2026-11-27' },
+    { id: 'card', type: 'credit', startBalance: -900, startDate: '2026-11-27' },
+  ];
+  assert.equal(budgetFor({ ...data, accounts }, '2026-11-27').leftToAssign, 1550); // 1150 + 400
+  assert.equal(budgetFor({ ...data, accounts }, '2026-11-20').leftToAssign, 750); // before it existed
+});
+
+test('account balances are the starting balance plus every transaction', () => {
+  const accounts = [{ id: 'chk', startBalance: 100 }, { id: 'card', startBalance: -50 }];
+  const txs = [
+    { accountId: 'chk', amount: -30 },
+    { accountId: 'chk', amount: 500 },
+    { accountId: 'card', amount: -20.1 },
+    { accountId: 'card', amount: -0.2 },
+    { amount: -999 },
+  ];
+  const b = accountBalances(accounts, txs);
+  assert.equal(b.get('chk'), 570);
+  assert.equal(b.get('card'), -70.3);
+});
+
+test('bills move forward by their repeat and keep their day of the month', () => {
+  assert.equal(addMonths('2026-11-15', 1), '2026-12-15');
+  assert.equal(addMonths('2026-12-15', 1), '2027-01-15');
+  assert.equal(dueAfter({ nextDue: '2027-01-31', every: 1, day: 31 }), '2027-02-28');
+  assert.equal(dueAfter({ nextDue: '2027-02-28', every: 1, day: 31 }), '2027-03-31');
+  assert.equal(dueAfter({ nextDue: '2026-11-15', every: 3 }), '2027-02-15');
+});
+
+test('payments from the linked envelope bring a debt balance down', () => {
+  const debt = { balance: 1000, asOf: '2026-11-01', envelopeId: 'card-env' };
+  const txs = [
+    { date: '2026-10-28', amount: -100, envelopeId: 'card-env' }, // before the statement
+    { date: '2026-11-01', amount: -50, envelopeId: 'card-env' }, // same day: already in the statement
+    { date: '2026-11-10', amount: -200, envelopeId: 'card-env' },
+    { date: '2026-11-12', amount: -90, envelopeId: 'split', splits: [{ envelopeId: 'card-env', amount: -40 }, { envelopeId: 'groc', amount: -50 }] },
+    { date: '2026-11-15', amount: -75, envelopeId: 'groc' },
+  ];
+  assert.deepEqual(debtStatus(debt, txs), { paid: 240, balance: 760 });
+  assert.deepEqual(debtStatus({ balance: 1000 }, txs), { paid: 0, balance: 1000 });
+
+  // Entered the balance this morning, typed in a payment this afternoon.
+  const sameDay = { ...debt, asOfAt: 1000 };
+  const typedLater = { date: '2026-11-01', amount: -30, envelopeId: 'card-env', created: 2000 };
+  const importedLater = { ...typedLater, importKey: 'x' };
+  assert.equal(debtStatus(sameDay, [typedLater]).paid, 30);
+  assert.equal(debtStatus(sameDay, [importedLater]).paid, 0);
 });

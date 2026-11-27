@@ -296,3 +296,20 @@ details.card > input { margin-top: 8px; }
 /* Long labels beside a number box wrap instead of pushing the page wide. */
 .settings .field.inline { flex: 1 1 100%; }
 .settings .field.inline > span { flex: 1; min-width: 0; }
+
+/* ---------- Accounts, splits, bills ---------- */
+nav { overflow-x: auto; }
+nav button { white-space: nowrap; }
+.account { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+.account button.link { margin-left: 8px; }
+.account-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.account-form > input[type="text"] { grid-column: 1 / -1; }
+.account-form > button { grid-column: 1 / -1; }
+.card.account-form { margin-top: 0; }
+.splits { display: grid; gap: 6px; }
+.split { display: grid; grid-template-columns: 1fr 100px auto; gap: 6px; }
+.bill .tx-line:last-child { justify-content: flex-start; }
+.card.overdue { border-color: var(--danger); }
+.warn.small { margin: 0; }
+.debt-link { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; }
+.debt-link > div { padding-bottom: 8px; }

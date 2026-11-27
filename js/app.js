@@ -5,12 +5,14 @@ import { h, setRenderer } from './ui.js';
 import * as db from './db.js';
 import { renderBudget } from './views/budget.js';
 import { renderTransactions } from './views/transactions.js';
+import { renderBills } from './views/bills.js';
 import { renderDebts } from './views/debts.js';
 import { renderGroceries, GROCERY_ID } from './views/groceries.js';
 
 const TABS = [
   ['budget', 'Budget', renderBudget],
   ['tx', 'Transactions', renderTransactions],
+  ['bills', 'Bills', renderBills],
   ['debts', 'Debts', renderDebts],
   ['groceries', 'Groceries', renderGroceries],
 ];

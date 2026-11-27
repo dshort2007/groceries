@@ -24,6 +24,42 @@ export function weekStart(date, startDay = 5) {
   return addDays(date, -((day - startDay + 7) % 7));
 }
 
+// The same day-of-month some months later. A bill due on the 31st lands on
+// the last day of shorter months.
+export function addMonths(date, months, day = Number(date.slice(8))) {
+  const total = Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1 + months;
+  const year = Math.floor(total / 12);
+  const month = (total % 12) + 1;
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(Math.min(day, last))}`;
+}
+
+// ---------- Transactions ----------
+
+// A purchase can be split across envelopes ($80 at Walmart: $60 groceries,
+// $20 clothing). This returns the pieces of a transaction, so the rest of
+// the math never has to care whether it was split.
+export function parts(t) {
+  if (Array.isArray(t.splits) && t.splits.length > 0) {
+    return t.splits.map((p) => ({ date: t.date, envelopeId: p.envelopeId, amount: Number(p.amount) || 0 }));
+  }
+  return [{ date: t.date, envelopeId: t.envelopeId, amount: Number(t.amount) || 0 }];
+}
+
+// What each account holds: its starting balance plus everything since.
+// Credit cards are negative when money is owed.
+export function accountBalances(accounts, transactions) {
+  const balances = new Map(accounts.map((a) => [a.id, Number(a.startBalance) || 0]));
+  for (const t of transactions) {
+    if (balances.has(t.accountId)) {
+      balances.set(t.accountId, balances.get(t.accountId) + (Number(t.amount) || 0));
+    }
+  }
+  for (const [id, value] of balances) balances.set(id, round2(value));
+  return balances;
+}
+
 // ---------- Envelope budget ----------
 //
 // How money flows:
@@ -31,9 +67,11 @@ export function weekStart(date, startDay = 5) {
 //   - An assignment moves money from that pool into an envelope, for a week.
 //   - A transaction filed under an envelope takes money out of it (or puts
 //     it back, for a refund).
+//   - Money already sitting in a bank account when you start counts as
+//     income too: it's yours to assign. Credit cards don't, they're debt.
 // An envelope's balance carries forward forever; the week is just the lens.
 
-export function budgetFor({ envelopes, transactions, assignments }, week) {
+export function budgetFor({ envelopes, transactions, assignments, accounts = [] }, week) {
   const end = addDays(week, 6);
   const month = week.slice(0, 7);
   const rows = new Map(
@@ -56,22 +94,25 @@ export function budgetFor({ envelopes, transactions, assignments }, week) {
     if (a.week.slice(0, 7) === month) row.assignedMonth += amount;
   }
 
+  for (const a of accounts) {
+    if (a.type !== 'credit' && (a.startDate || '') <= end) income += Number(a.startBalance) || 0;
+  }
+
   for (const t of transactions) {
-    const amount = Number(t.amount) || 0;
-    if (!t.envelopeId) {
-      needsEnvelope++;
-      continue;
-    }
+    const pieces = parts(t);
+    if (pieces.some((p) => !p.envelopeId)) needsEnvelope++;
     if (t.date > end) continue;
-    if (t.envelopeId === 'income') {
-      income += amount;
-      if (t.date >= week) incomeThisWeek += amount;
-      continue;
+    for (const { envelopeId, amount } of pieces) {
+      if (envelopeId === 'income') {
+        income += amount;
+        if (t.date >= week) incomeThisWeek += amount;
+        continue;
+      }
+      const row = rows.get(envelopeId);
+      if (!row) continue; // unfiled, a transfer, or an envelope that's gone
+      row.available += amount;
+      if (t.date >= week) row.spent -= amount;
     }
-    const row = rows.get(t.envelopeId);
-    if (!row) continue; // transfers, or an envelope that no longer exists
-    row.available += amount;
-    if (t.date >= week) row.spent -= amount;
   }
 
   for (const row of rows.values()) {
@@ -85,7 +126,35 @@ export function budgetFor({ envelopes, transactions, assignments }, week) {
   };
 }
 
+// ---------- Bills ----------
+
+// A bill remembers when it's next due and how often it repeats (every 1, 3,
+// 6 or 12 months). Paying it moves the due date forward.
+export function dueAfter(bill) {
+  return addMonths(bill.nextDue, Number(bill.every) || 1, Number(bill.day) || Number(bill.nextDue.slice(8)));
+}
+
 // ---------- Debt payoff ----------
+
+// A debt's balance is whatever the last statement said, minus payments made
+// since then from the envelope it's linked to. Interest isn't added, so
+// this drifts until the balance is updated from the next statement.
+export function debtStatus(debt, transactions) {
+  let paid = 0;
+  if (debt.envelopeId) {
+    for (const t of transactions) {
+      // Count payments after the balance was entered. On that same day,
+      // count only ones typed in afterwards; a same-day bank import is
+      // assumed to be in the balance already.
+      const sameDayLater = t.date === debt.asOf && !t.importKey && (t.created ?? 0) > (debt.asOfAt ?? Infinity);
+      if (t.date <= (debt.asOf || '') && !sameDayLater) continue;
+      for (const p of parts(t)) if (p.envelopeId === debt.envelopeId) paid -= p.amount;
+    }
+  }
+  paid = round2(Math.max(0, paid));
+  return { paid, balance: round2(Math.max(0, (Number(debt.balance) || 0) - paid)) };
+}
+
 //
 // Simulates paying every minimum each month, plus any extra, aimed at one
 // debt at a time. When a debt is paid off its payment rolls to the next.

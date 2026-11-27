@@ -39,13 +39,24 @@ function setAssigned(envelopeId, amount) {
   rerender();
 }
 
-// Brings in a setup file: { envelopes: [...], debts: [...] }.
+// Brings in a setup file: accounts, envelopes, debts and bills. Items can
+// point at each other by "key" (a debt's envelopeKey, a bill's accountKey);
+// those are swapped for the real ids as everything is created.
 async function loadSetupFile(file) {
   try {
     const setup = JSON.parse(await file.text());
+    const ids = new Map();
     let sort = Date.now();
-    for (const e of setup.envelopes || []) db.put('envelope', { ...e, sort: sort++ });
-    for (const d of setup.debts || []) db.put('debt', d);
+    const create = (kind, { key, envelopeKey, accountKey, ...record }) => {
+      if (envelopeKey) record.envelopeId = ids.get(envelopeKey) || '';
+      if (accountKey) record.accountId = ids.get(accountKey) || '';
+      const id = db.put(kind, { ...record, sort: sort++ });
+      if (key) ids.set(key, id);
+    };
+    for (const a of setup.accounts || []) create('account', { type: 'checking', startBalance: 0, startDate: today(), ...a });
+    for (const e of setup.envelopes || []) create('envelope', e);
+    for (const d of setup.debts || []) create('debt', { ...d, asOf: today(), asOfAt: Date.now() });
+    for (const b of setup.bills || []) create('bill', b);
     rerender();
   } catch {
     alert("That file couldn't be read as a setup file.");
@@ -137,7 +148,7 @@ export function renderBudget() {
   if (envelopes.length === 0) return [renderEmpty()];
 
   const budget = budgetFor(
-    { envelopes: allEnvelopes, transactions: db.all('tx'), assignments: db.all('assign') },
+    { envelopes: allEnvelopes, transactions: db.all('tx'), assignments: db.all('assign'), accounts: db.all('account') },
     week
   );
   const left = budget.leftToAssign;
