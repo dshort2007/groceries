@@ -1,0 +1,201 @@
+:root {
+  --bg: #f4f5f2;
+  --card: #ffffff;
+  --text: #1c2420;
+  --muted: #5f6b64;
+  --line: #dfe3dd;
+  --accent: #1f7a4d;
+  --accent-text: #ffffff;
+  --good-bg: #e6f4ec;
+  --warn: #9a5b00;
+  --danger: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141816;
+    --card: #1e2421;
+    --text: #e9eeea;
+    --muted: #9eaaa3;
+    --line: #333c37;
+    --accent: #4cc38a;
+    --accent-text: #0c1a13;
+    --good-bg: #1d3328;
+    --warn: #f0b354;
+    --danger: #ff8a80;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+header, main, footer {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+h1 { font-size: 1.35rem; margin: 20px 0 12px; }
+h2 { font-size: 1.15rem; margin: 0 0 8px; }
+h3 { font-size: 1rem; margin: 0; }
+
+nav {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+
+nav button {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  padding: 10px 4px;
+  font-weight: 600;
+}
+
+nav button[aria-current="page"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+button, input, select { font: inherit; color: inherit; }
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 8px;
+  padding: 8px 14px;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+button.danger { color: var(--danger); }
+
+input[type="text"], input[type="number"], select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.add-form {
+  display: grid;
+  grid-template-columns: 1fr 72px 92px auto;
+  gap: 8px;
+}
+
+.store + .add-form, .add-form:has(> input:only-of-type) {
+  grid-template-columns: 1fr auto;
+}
+
+.muted { color: var(--muted); }
+.small { font-size: 0.875rem; }
+.right { text-align: right; }
+.empty { color: var(--muted); text-align: center; padding: 32px 0; }
+.warn { color: var(--warn); margin: 12px 0 0; }
+
+/* List items */
+.item summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+.item summary > :last-child { margin-left: auto; }
+.item-name { font-weight: 600; }
+
+.price-row {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.store-name { font-weight: 600; margin-bottom: 6px; }
+.hint { color: var(--muted); font-size: 0.875rem; min-height: 1.3em; margin-top: 4px; }
+
+.fields { display: flex; gap: 8px; }
+.field { display: block; flex: 1; min-width: 0; }
+.field > span { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 2px; }
+.field.inline { display: flex; align-items: center; gap: 8px; flex: none; }
+.field.inline > span { margin: 0; font-size: 0.9rem; }
+.field.inline input, .field.inline select { width: 84px; }
+
+.row-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+/* Best plan */
+.settings { display: flex; flex-wrap: wrap; gap: 10px 24px; }
+
+.best { border-color: var(--accent); }
+.best h2, .plan-store h3, .plan-store li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.best h2 { font-size: 1.3rem; }
+.savings {
+  background: var(--good-bg);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 0 4px;
+}
+.plan-store { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+.plan-store ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.plan-store li { padding: 3px 0; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+th.right, td.right { text-align: right; }
+tr.is-best td { font-weight: 700; }
+
+/* Stores */
+.store { display: grid; gap: 10px; }
+.check { display: flex; align-items: center; gap: 8px; }
+.check input { width: 18px; height: 18px; }
+
+footer {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 16px 16px 32px;
+}
+
+/* On a phone, give the item name its own row so it isn't squeezed. */
+@media (max-width: 520px) {
+  .add-form:has(select) { grid-template-columns: 1fr 1fr auto; }
+  .add-form:has(select) input[type="text"] { grid-column: 1 / -1; }
+}
