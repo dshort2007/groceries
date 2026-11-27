@@ -3,7 +3,7 @@
 // window, and everything secret stays in the server-side function
 // (supabase/functions/plaid).
 
-import { h, money, rerender } from '../ui.js';
+import { h, money, rerender, rerenderWhenIdle } from '../ui.js';
 import { today } from '../money.js';
 import { accounts } from './shared.js';
 import * as db from '../db.js';
@@ -32,7 +32,7 @@ async function loadStatus() {
     state.problem = err.message;
   }
   state.loaded = true;
-  rerender();
+  rerenderWhenIdle();
 }
 
 // Bank transactions arrive knowing only the bank's own account number.
@@ -49,7 +49,7 @@ function fillInAccounts() {
 export async function syncBank(force) {
   if (!state.available || state.items.length === 0 || state.busy) return;
   state.busy = 'Checking the bank…';
-  rerender();
+  rerenderWhenIdle();
   try {
     const result = await call('sync', { force });
     state.items = result.items;
@@ -66,7 +66,7 @@ export async function syncBank(force) {
     state.message = err.message;
   }
   state.busy = '';
-  rerender();
+  rerenderWhenIdle();
 }
 
 function loadPlaid() {

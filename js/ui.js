@@ -54,3 +54,11 @@ let go = () => {};
 export const setRenderer = (drawFn, goFn) => { draw = drawFn; go = goFn; };
 export const rerender = () => setTimeout(draw, 0);
 export const goTo = (view) => go(view);
+
+// For redraws caused by something finishing in the background (the bank
+// answering, say): wait until nobody is mid-typing, so a half-filled box
+// is never wiped out from under them.
+export function rerenderWhenIdle() {
+  const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+  setTimeout(typing ? rerenderWhenIdle : draw, typing ? 1500 : 0);
+}
