@@ -18,6 +18,20 @@
     <span id="save-note"></span>
     <button id="sign-out" hidden>Sign out</button>
   </footer>
+  <script>
+    // Start the helper that keeps the app up to date (see sw.js). The very
+    // first time it takes over, reload once so this visit gets fresh files.
+    if ('serviceWorker' in navigator) {
+      const firstTime = !navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (firstTime && !sessionStorage.getItem('sw-reloaded')) {
+          sessionStorage.setItem('sw-reloaded', '1');
+          location.reload();
+        }
+      });
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+  </script>
   <script src="js/vendor/supabase.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>

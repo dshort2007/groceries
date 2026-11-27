@@ -74,6 +74,7 @@ a spreadsheet, bank file, setup file or secret key to this repository.
 | File | What it's for |
 |---|---|
 | `index.html`, `styles.css` | The page and how it looks |
+| `sw.js` | Makes browsers pick up a newly published version on the next reload |
 | `js/app.js` | Sign-in, the tabs, redrawing the screen |
 | `js/views/` | One file per tab, plus `shared.js` for pickers they share |
 | `js/money.js` | Budget math, debt payoff math, reading bank files |
