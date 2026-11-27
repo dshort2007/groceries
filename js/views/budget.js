@@ -1,0 +1,250 @@
+// The weekly envelope budget.
+
+import { h, money, num, numberField, rerender, goTo } from '../ui.js';
+import { today, addDays, weekStart, budgetFor } from '../money.js';
+import * as db from '../db.js';
+
+let week = weekStart(today());
+let editing = false;
+
+const STARTER = [
+  ['Giving', ['Tithe']],
+  ['Housing', ['Rent', 'Utilities']],
+  ['Food', ['Groceries', 'Dining Out']],
+  ['Transportation', ['Gas', 'Car Maintenance']],
+  ['Personal', ['Pocket Money', 'Clothing']],
+  ['Debt', ['Debt Payments']],
+];
+
+const shortDate = (date) =>
+  new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+// Envelopes grouped the way they were set up, groups in first-seen order.
+function grouped(envelopes) {
+  const groups = new Map();
+  for (const e of [...envelopes].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))) {
+    const name = e.group || 'Other';
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(e);
+  }
+  return groups;
+}
+
+// Set how much goes into an envelope for the week on screen.
+function setAssigned(envelopeId, amount) {
+  const existing = db.all('assign').filter((a) => a.week === week && a.envelopeId === envelopeId);
+  const [first, ...extras] = existing;
+  for (const extra of extras) db.remove(extra.id);
+  db.put('assign', { ...first, week, envelopeId, amount: amount ?? 0 });
+  rerender();
+}
+
+// Brings in a setup file: { envelopes: [...], debts: [...] }.
+async function loadSetupFile(file) {
+  try {
+    const setup = JSON.parse(await file.text());
+    let sort = Date.now();
+    for (const e of setup.envelopes || []) db.put('envelope', { ...e, sort: sort++ });
+    for (const d of setup.debts || []) db.put('debt', d);
+    rerender();
+  } catch {
+    alert("That file couldn't be read as a setup file.");
+  }
+}
+
+function renderEmpty() {
+  return h(
+    'div',
+    { class: 'card' },
+    h('h2', {}, 'Set up your envelopes'),
+    h('p', { class: 'muted' }, 'An envelope is a pot of money for one purpose: rent, groceries, gas. Start from a setup file made from your spreadsheet, or from a short common list you can edit.'),
+    h(
+      'div',
+      { class: 'button-row' },
+      h(
+        'label',
+        { class: 'button primary' },
+        'Load my setup file',
+        h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: (e) => e.target.files[0] && loadSetupFile(e.target.files[0]) })
+      ),
+      h(
+        'button',
+        {
+          onclick: () => {
+            let sort = Date.now();
+            for (const [group, names] of STARTER) {
+              for (const name of names) db.put('envelope', { name, group, plan: 0, sort: sort++ });
+            }
+            rerender();
+          },
+        },
+        'Start with a common list'
+      )
+    )
+  );
+}
+
+function renderEnvelope(e, row) {
+  if (editing) {
+    const update = (field, value) => { db.put('envelope', { ...e, [field]: value }); rerender(); };
+    return h(
+      'div',
+      { class: 'envelope editing' },
+      h('label', { class: 'field grow' }, h('span', {}, 'Name'), h('input', { type: 'text', value: e.name, data: { key: `name-${e.id}` }, onchange: (ev) => update('name', ev.target.value.trim() || e.name) })),
+      h('label', { class: 'field grow' }, h('span', {}, 'Group'), h('input', { type: 'text', value: e.group || '', list: 'groups', data: { key: `group-${e.id}` }, onchange: (ev) => update('group', ev.target.value.trim()) })),
+      numberField('Plan / month', e.plan || '', (v) => update('plan', v ?? 0), { key: `plan-${e.id}` }),
+      h(
+        'button',
+        {
+          class: 'danger',
+          onclick: () => {
+            if (Math.abs(row.available) >= 0.005) {
+              return alert(`${e.name} still has ${money(row.available)} in it. Change what's assigned so it's at $0.00, then remove it.`);
+            }
+            db.put('envelope', { ...e, archived: true });
+            rerender();
+          },
+        },
+        'Remove'
+      )
+    );
+  }
+
+  const plan = Number(e.plan) || 0;
+  return h(
+    'div',
+    { class: 'envelope' },
+    h(
+      'div',
+      { class: 'envelope-name' },
+      h('div', {}, e.name),
+      plan > 0 && h('div', { class: 'muted small' }, `${money(row.assignedMonth)} of ${money(plan)} this month`)
+    ),
+    numberField('Assign', row.assigned || '', (v) => setAssigned(e.id, v), { key: `assign-${e.id}`, placeholder: '0.00' }),
+    h('div', { class: 'stat' }, h('span', {}, 'Spent'), h('div', {}, money(row.spent))),
+    h(
+      'div',
+      { class: 'stat' },
+      h('span', {}, 'Available'),
+      h('div', { class: row.available < -0.004 ? 'neg' : row.available > 0.004 ? 'pos' : 'muted' }, money(row.available))
+    )
+  );
+}
+
+export function renderBudget() {
+  const allEnvelopes = db.all('envelope');
+  const envelopes = allEnvelopes.filter((e) => !e.archived);
+  if (envelopes.length === 0) return [renderEmpty()];
+
+  const budget = budgetFor(
+    { envelopes: allEnvelopes, transactions: db.all('tx'), assignments: db.all('assign') },
+    week
+  );
+  const left = budget.leftToAssign;
+
+  const nav = h(
+    'div',
+    { class: 'week-nav' },
+    h('button', { 'aria-label': 'Previous week', onclick: () => { week = addDays(week, -7); rerender(); } }, '‹'),
+    h(
+      'div',
+      {},
+      h('strong', {}, `${shortDate(week)} – ${shortDate(addDays(week, 6))}`),
+      week !== weekStart(today()) &&
+        h('button', { class: 'link', onclick: () => { week = weekStart(today()); rerender(); } }, 'This week')
+    ),
+    h('button', { 'aria-label': 'Next week', onclick: () => { week = addDays(week, 7); rerender(); } }, '›')
+  );
+
+  const incomeAmount = h('input', { type: 'number', step: 'any', min: '0', inputMode: 'decimal', placeholder: 'Amount', required: true });
+  const incomeFrom = h('input', { type: 'text', placeholder: 'From, e.g. Paycheck', required: true });
+  const summary = h(
+    'div',
+    { class: 'card left ' + (left < -0.004 ? 'over' : left > 0.004 ? 'todo' : 'done') },
+    h('div', { class: 'muted small' }, 'Left to assign'),
+    h('div', { class: 'big' }, money(left)),
+    h(
+      'p',
+      { class: 'small' },
+      left < -0.004
+        ? "You've assigned more than you have. Take some back out of an envelope."
+        : left > 0.004
+          ? 'Give every dollar a job: keep assigning until this reaches $0.00.'
+          : 'Every dollar has a job.'
+    ),
+    h(
+      'form',
+      {
+        class: 'income-form',
+        onsubmit: (ev) => {
+          ev.preventDefault();
+          const amount = num(incomeAmount.value);
+          if (!(amount > 0)) return;
+          const now = today();
+          db.put('tx', {
+            date: now >= week && now <= addDays(week, 6) ? now : week,
+            payee: incomeFrom.value.trim(),
+            amount,
+            envelopeId: 'income',
+            created: Date.now(),
+          });
+          rerender();
+        },
+      },
+      incomeAmount,
+      incomeFrom,
+      h('button', { type: 'submit' }, 'Add income')
+    ),
+    budget.incomeThisWeek > 0 && h('p', { class: 'muted small' }, `Income this week: ${money(budget.incomeThisWeek)}`)
+  );
+
+  const todo =
+    budget.needsEnvelope > 0 &&
+    h(
+      'button',
+      { class: 'card notice', onclick: () => goTo('tx') },
+      `${budget.needsEnvelope} transaction${budget.needsEnvelope === 1 ? ' needs' : 's need'} an envelope ›`
+    );
+
+  const groups = [...grouped(envelopes)].map(([name, list]) => {
+    const available = list.reduce((sum, e) => sum + budget.rows.get(e.id).available, 0);
+    return h(
+      'section',
+      { class: 'card group' },
+      h('h3', {}, h('span', {}, name), h('span', { class: 'muted' }, money(available))),
+      list.map((e) => renderEnvelope(e, budget.rows.get(e.id)))
+    );
+  });
+
+  const name = h('input', { type: 'text', placeholder: 'New envelope', required: true });
+  const group = h('input', { type: 'text', placeholder: 'Group', list: 'groups' });
+  const addForm = h(
+    'form',
+    {
+      class: 'card add-envelope',
+      onsubmit: (ev) => {
+        ev.preventDefault();
+        if (!name.value.trim()) return;
+        db.put('envelope', { name: name.value.trim(), group: group.value.trim(), plan: 0, sort: Date.now() });
+        rerender();
+      },
+    },
+    name,
+    group,
+    h('button', { type: 'submit', class: 'primary' }, 'Add')
+  );
+
+  return [
+    nav,
+    summary,
+    todo,
+    ...groups,
+    h('datalist', { id: 'groups' }, [...grouped(envelopes).keys()].map((g) => h('option', { value: g }))),
+    h(
+      'div',
+      { class: 'button-row' },
+      h('button', { onclick: () => { editing = !editing; rerender(); } }, editing ? 'Done editing' : 'Edit envelopes')
+    ),
+    editing && addForm,
+  ];
+}

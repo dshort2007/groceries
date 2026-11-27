@@ -1,14 +1,10 @@
-// The copy of the data kept in this browser. It makes the app open instantly
-// and keeps your changes if the connection drops. The shared online copy is
-// handled in cloud.js.
-
-const KEY = 'groceries-v1';
+// The starting shape of the grocery planner's data.
 
 export function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-function defaultState() {
+export function defaultState() {
   return {
     items: [],
     stores: [
@@ -38,31 +34,4 @@ export function normalizeState(saved) {
     prices: saved.prices || {},
     settings: { ...base.settings, ...saved.settings },
   };
-}
-
-export function loadState() {
-  try {
-    const state = normalizeState(JSON.parse(localStorage.getItem(KEY)));
-    if (state) return state;
-  } catch {
-    // Nothing saved yet, or storage is unavailable: start fresh.
-  }
-  return defaultState();
-}
-
-export function clearState() {
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    // Nothing to clear.
-  }
-}
-
-export function saveState(state) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-    return true;
-  } catch {
-    return false;
-  }
 }

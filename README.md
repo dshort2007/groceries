@@ -1,69 +1,64 @@
-# Grocery Price Planner
+# Family Budget
 
-Add your groceries, enter what each store charges, and the app works out the
-cheapest way to buy everything: all at one store, or split across a few.
+A private budgeting app for one household: a weekly envelope budget,
+transactions, a debt payoff planner, and a grocery price planner.
 
-## What it does today
+## What it does
 
-- **List**: add items and how much you need. Enter each store's price, package
-  size and any coupon.
-- **Best plan**: shows the cheapest plan, what to buy where, and how it
-  compares with every single-store option. You can cap how many stores you're
-  willing to visit and say how much an extra stop has to save to be worth it.
-- **Stores**: add or remove stores, mark memberships (Sam's Club, Walmart+),
-  and set per-trip fees such as delivery.
+- **Budget**: zero-based envelope budgeting by week (weeks start Friday).
+  Income goes into "Left to assign"; you assign it to envelopes until that
+  reaches $0. Unspent money stays in its envelope and carries forward.
+- **Transactions**: add spending by hand or import a bank's CSV file. The app
+  remembers which envelope each payee goes in. Re-importing a file skips rows
+  it already has.
+- **Debts**: balances, rates and minimums, with a side-by-side comparison of
+  paying smallest-balance-first (snowball) and highest-rate-first (avalanche).
+- **Groceries**: compare prices across stores and find the cheapest plan.
 
-Everyone in the house signs in with the same email and password and sees the
-same list, stores and prices. Changes show up on other devices within about
-15 seconds. If the connection drops, changes are kept on the device and
-uploaded when it's back.
-
-One limit: the whole list is saved as a single record, so if two people make
-changes within a few seconds of each other, the later save wins.
+Each family member signs in with their own login. Changes sync between
+devices within about 15 seconds, and each envelope, transaction or debt syncs
+on its own, so two people can work at the same time.
 
 ## One-time Supabase setup
 
-1. In Supabase, open **SQL Editor**, paste in `supabase/setup.sql`, and Run.
-2. Open **Authentication > Users > Add user > Create new user**. Enter the
-   household email and a password, and leave **Auto Confirm User** ticked.
-3. Optional: under **Authentication > Sign In / Providers**, turn off
-   **Allow new users to sign up** so nobody else can create a login.
+1. Create a login for each person under **Authentication > Users > Add user**
+   (leave **Auto Confirm User** ticked).
+2. Open `supabase/setup-finance.sql`, put those emails in the last statement,
+   paste the whole thing into the **SQL Editor**, and Run.
 
-The project address and public key are in `js/config.js`.
+Only logins listed in that last statement can see or change anything.
+`supabase/setup.sql` is the setup for the earlier grocery-only version.
 
-## Running it
+## Privacy
 
-It's a plain web page with no install step. It does need to be served by a
-web server rather than opened by double-clicking the file:
+This repository is public, and that's fine: it holds only the app's code. All
+financial data lives in the Supabase database behind the sign-in. Never commit
+a spreadsheet, bank file or setup file to this repository.
 
-    npm start
+## Running it on your own computer
 
-Then open http://localhost:8000. (`npm start` just runs Python's built-in
-web server.)
-
-To check the price math:
-
-    npm test
+    npm start        then open http://localhost:8000
+    npm test         checks the budgeting and price math
 
 ## Where things are
 
 | File | What it's for |
 |---|---|
-| `index.html` | The page itself |
-| `styles.css` | How it looks |
-| `js/optimizer.js` | The price math and best-plan logic |
-| `js/app.js` | The screens and buttons |
-| `js/cloud.js` | Sign-in and syncing with Supabase |
-| `js/storage.js` | The copy of the data kept on each device |
+| `index.html`, `styles.css` | The page and how it looks |
+| `js/app.js` | Sign-in, the tabs, redrawing the screen |
+| `js/views/` | One file per tab: budget, transactions, debts, groceries |
+| `js/money.js` | Budget math, debt payoff math, reading bank files |
+| `js/optimizer.js` | Grocery best-plan math |
+| `js/db.js` | Storing data and syncing it with Supabase |
 | `js/config.js` | Which Supabase project to use |
 | `js/vendor/supabase.js` | Supabase's own library, copied in unchanged |
-| `supabase/setup.sql` | One-time database setup |
-| `tests/optimizer.test.js` | Automatic checks for the price math |
+| `supabase/` | Database setup scripts |
+| `tests/` | Automatic checks for the math |
 
 ## Not built yet
 
-- Hosting at a web address
-- Separate accounts per person or per household
-- Automatic prices from Kroger's developer API
-- Price history
-- Coupons that apply to a whole order ("$5 off $50")
+- Bills calendar (due dates and pay-from accounts)
+- Automatic bank connections
+- Account balances and reconciling against the bank
+- Splitting one transaction across envelopes
+- Linking debt payments to the debt balances
