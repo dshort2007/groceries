@@ -1,28 +1,41 @@
 :root {
-  --bg: #f4f5f2;
+  --bg: #f6f4ef;
   --card: #ffffff;
-  --text: #1c2420;
-  --muted: #5f6b64;
-  --line: #dfe3dd;
-  --accent: #1f7a4d;
+  --field: #f4f2ec;
+  --text: #1d2a24;
+  --muted: #64716a;
+  --line: #e6e2d9;
+  --accent: #1f7a5a;
+  --accent-strong: #145c43;
+  --accent-soft: #e2f3eb;
   --accent-text: #ffffff;
-  --good-bg: #e6f4ec;
-  --warn: #9a5b00;
-  --danger: #b3261e;
+  --good-bg: #e2f3eb;
+  --warn: #8f5500;
+  --warn-soft: #fbf0d9;
+  --danger: #b5382c;
+  --danger-soft: #fbe7e4;
+  --shadow: 0 1px 2px rgba(29, 42, 36, 0.05), 0 8px 24px rgba(29, 42, 36, 0.06);
+  --rounded: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #141816;
-    --card: #1e2421;
-    --text: #e9eeea;
-    --muted: #9eaaa3;
-    --line: #333c37;
-    --accent: #4cc38a;
-    --accent-text: #0c1a13;
-    --good-bg: #1d3328;
+    --bg: #0f1513;
+    --card: #19211e;
+    --field: #111816;
+    --text: #e8efea;
+    --muted: #9aa8a1;
+    --line: #2a3531;
+    --accent: #4fd1a1;
+    --accent-strong: #86e3c2;
+    --accent-soft: #17352b;
+    --accent-text: #07130e;
+    --good-bg: #17352b;
     --warn: #f0b354;
-    --danger: #ff8a80;
+    --warn-soft: #33290f;
+    --danger: #ff8f84;
+    --danger-soft: #3b1d1a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   }
 }
 
@@ -343,3 +356,126 @@ button.link.danger { justify-self: start; color: var(--danger); }
   .meter-row { grid-template-columns: 1fr auto; }
   .meter-row .meter, .meter-row > span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* =====================================================================
+   Look and feel. Everything above lays the screens out; this section is
+   the polish on top: type, surfaces, the navigation and the overview.
+   ===================================================================== */
+
+h1, h2, h3, .big, .tile-value, .hero-title { font-family: var(--rounded); letter-spacing: -0.01em; }
+h1 { display: flex; align-items: center; gap: 10px; font-size: 1.3rem; margin: 18px 0 14px; }
+.mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(140deg, #25916b, #145c43); color: #fff; }
+.icon { display: inline-grid; place-items: center; }
+.icon svg, .mark svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Surfaces */
+.card { border-radius: 18px; padding: 16px; box-shadow: var(--shadow); }
+button, .button { border-radius: 11px; transition: background 0.15s, border-color 0.15s, transform 0.05s; }
+button:active { transform: scale(0.98); }
+button.primary:hover, .button.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+input[type="text"], input[type="number"], input[type="email"], input[type="password"], input[type="date"], input[type="file"], select {
+  background: var(--field);
+  border-radius: 11px;
+}
+input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pos { color: var(--accent-strong); }
+
+/* Navigation: pills along the top on a computer... */
+nav { gap: 2px; border-bottom: none; margin-bottom: 18px; overflow-x: auto; }
+nav button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 11px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* Only where there's a real mouse: on a phone, hover sticks after a tap. */
+@media (hover: hover) { nav button:hover { background: var(--card); } }
+nav button[aria-current="page"] { background: var(--accent-soft); color: var(--accent-strong); border: none; }
+nav .icon svg { width: 18px; height: 18px; }
+
+/* ...and a bar across the bottom on a phone, where thumbs can reach it. */
+@media (max-width: 620px) {
+  body { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    margin: 0;
+    padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
+    gap: 0;
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+    overflow: visible;
+  }
+  nav button {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+    padding: 7px 0;
+    border-radius: 12px;
+    /* Scales down a touch on narrow phones so "Transactions" always fits. */
+    font-size: min(0.6rem, 2.45vw);
+    letter-spacing: -0.01em;
+    font-weight: 600;
+  }
+  nav .icon svg { width: 22px; height: 22px; }
+  nav button span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* Overview */
+.hero {
+  border-radius: 22px;
+  padding: 20px;
+  margin-bottom: 12px;
+  color: #fff;
+  background: linear-gradient(140deg, #25916b 0%, #17644a 60%, #124d3a 100%);
+  box-shadow: var(--shadow);
+}
+.hero-date { font-size: 0.85rem; opacity: 0.85; }
+.hero-title { font-size: 1.6rem; font-weight: 700; margin: 2px 0 4px; }
+.hero-note { opacity: 0.95; }
+.tile { gap: 4px; padding: 14px; }
+.tile:hover { border-color: var(--accent); }
+.tile-top { display: flex; align-items: center; gap: 8px; }
+.tile .icon { width: 30px; height: 30px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-strong); }
+.tile .icon svg { width: 17px; height: 17px; }
+.tile-value { font-size: 1.45rem; font-weight: 700; }
+.end { gap: 10px; padding: 12px 0; }
+.end > span:nth-child(2) { flex: 1; }
+.dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.dot.urgent { background: var(--danger); }
+.dot.todo { background: var(--warn); }
+
+/* Budget */
+.left { border-radius: 22px; }
+.left.todo { background: var(--accent-soft); border-color: transparent; }
+.left.over { background: var(--danger-soft); border-color: transparent; }
+.left .big { font-size: 2.2rem; }
+.week-nav > button { border-radius: 50%; width: 40px; height: 40px; padding: 0; }
+.group h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.group h3 span:last-child { text-transform: none; letter-spacing: 0; font-size: 0.95rem; }
+.pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-weight: 600; background: var(--field); }
+.pill.pos { background: var(--accent-soft); color: var(--accent-strong); }
+.pill.neg { background: var(--danger-soft); color: var(--danger); }
+.stat > div:has(.pill) { padding: 5px 0; }
+.notice { background: var(--warn-soft); border-color: transparent; }
+.savings { border-radius: 11px; }
+.subtabs button.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-strong); }
+select.unfiled { background: var(--warn-soft); }
+.card.overdue { border-color: var(--danger); }
+.sign-in { margin-top: 48px; }
+footer { padding-top: 8px; }

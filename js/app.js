@@ -1,7 +1,7 @@
 // The app's frame: signing in, the tabs, and redrawing the screen.
 // Each tab's contents live in js/views/.
 
-import { h, setRenderer } from './ui.js';
+import { h, icon, setRenderer } from './ui.js';
 import * as db from './db.js';
 import { renderOverview } from './views/overview.js';
 import { renderBudget } from './views/budget.js';
@@ -55,7 +55,7 @@ function goTo(next) {
 }
 
 nav.replaceChildren(
-  ...TABS.map(([id, label]) => h('button', { data: { view: id }, onclick: () => goTo(id) }, label))
+  ...TABS.map(([id, label]) => h('button', { data: { view: id }, onclick: () => goTo(id) }, icon(id), h('span', {}, label)))
 );
 setRenderer(render, goTo);
 

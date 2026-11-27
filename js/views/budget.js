@@ -103,7 +103,7 @@ function renderEnvelope(e, row) {
       { class: 'envelope editing' },
       h('label', { class: 'field grow' }, h('span', {}, 'Name'), h('input', { type: 'text', value: e.name, data: { key: `name-${e.id}` }, onchange: (ev) => update('name', ev.target.value.trim() || e.name) })),
       h('label', { class: 'field grow' }, h('span', {}, 'Group'), h('input', { type: 'text', value: e.group || '', list: 'groups', data: { key: `group-${e.id}` }, onchange: (ev) => update('group', ev.target.value.trim()) })),
-      numberField('Plan / month', e.plan || '', (v) => update('plan', v ?? 0), { key: `plan-${e.id}` }),
+      numberField('Monthly target', e.plan || '', (v) => update('plan', v ?? 0), { key: `plan-${e.id}` }),
       h(
         'button',
         {
@@ -137,7 +137,7 @@ function renderEnvelope(e, row) {
       'div',
       { class: 'stat' },
       h('span', {}, 'Available'),
-      h('div', { class: row.available < -0.004 ? 'neg' : row.available > 0.004 ? 'pos' : 'muted' }, money(row.available))
+      h('div', {}, h('span', { class: 'pill ' + (row.available < -0.004 ? 'neg' : row.available > 0.004 ? 'pos' : 'muted') }, money(row.available)))
     )
   );
 }
@@ -250,6 +250,7 @@ export function renderBudget() {
     summary,
     todo,
     ...groups,
+    editing && h('p', { class: 'muted small' }, 'Monthly target is optional: roughly what you mean to put in that envelope each month. It moves no money. It only lets the app show how far along you are ("$200 of $440 this month") and where the gaps are on the Overview.'),
     h('datalist', { id: 'groups' }, [...grouped(envelopes).keys()].map((g) => h('option', { value: g }))),
     h(
       'div',
