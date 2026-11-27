@@ -126,6 +126,21 @@ export function budgetFor({ envelopes, transactions, assignments, accounts = [] 
   };
 }
 
+// ---------- Side business ----------
+
+// Divides a job's payment three ways by percentage: the business, family
+// savings, and personal pay (whatever percentage is left over). Family
+// savings absorbs the odd cent from rounding, so the three always add back
+// up to the total exactly.
+export function splitJob(total, percents) {
+  const amount = Number(total) || 0;
+  const b = Number(percents.business) || 0;
+  const f = Number(percents.family) || 0;
+  const business = round2((amount * b) / 100);
+  const personal = round2((amount * Math.max(0, 100 - b - f)) / 100);
+  return { business, family: round2(amount - business - personal), personal };
+}
+
 // ---------- Bills ----------
 
 // A bill remembers when it's next due and how often it repeats (every 1, 3,

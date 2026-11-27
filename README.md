@@ -24,7 +24,9 @@ transactions, a debt payoff planner, and a grocery price planner.
 - **Debts**: balances, rates and minimums, with a side-by-side comparison of
   paying smallest-balance-first (snowball) and highest-rate-first (avalanche).
   Link a debt to an envelope and payments from it bring the balance down.
-- **Groceries**: compare prices across stores and find the cheapest plan.
+- **More > Groceries**: compare prices across stores and find the cheapest plan.
+- **More > Side business**: log each job and see how it divides between the
+  business, family savings and personal pay, by percentages you set.
 
 Each family member signs in with their own login. Changes sync between
 devices within about 15 seconds, and each envelope, transaction or debt syncs

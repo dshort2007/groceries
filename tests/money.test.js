@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -206,4 +206,13 @@ test('spots the transaction that paid a bill', () => {
   assert.equal(findPayment({ ...utilities, amount: 320 }, txs, true).tx.id, 't1');
   assert.equal(findPayment({ ...utilities, lastTxId: 't1' }, txs, false), null);
   assert.equal(findPayment({ ...utilities, envelopeId: '' }, txs, false), null);
+});
+
+test('a job splits by percentage and always adds back up', () => {
+  assert.deepEqual(splitJob(347.67, { business: 50, family: 50 }), { business: 173.84, family: 173.83, personal: 0 });
+  assert.deepEqual(splitJob(600, { business: 40, family: 35 }), { business: 240, family: 210, personal: 150 });
+  for (const total of [193.95, 458.88, 627.81, 0.01]) {
+    const s = splitJob(total, { business: 33.3, family: 33.3 });
+    assert.equal(Math.round((s.business + s.family + s.personal) * 100), Math.round(total * 100));
+  }
 });

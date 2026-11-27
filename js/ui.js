@@ -29,6 +29,7 @@ const ICONS = {
   bills: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   debts: '<path d="m3 7 6.5 6.5 4-4L21 17"/><path d="M21 11.5V17h-5.5"/>',
   groceries: '<path d="M3 4h2.5l2.2 10.5h10.3L20 7.5H6.3"/><circle cx="9" cy="18.5" r="1.4"/><circle cx="17" cy="18.5" r="1.4"/>',
+  more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   bank: '<path d="M3.5 9.5 12 4l8.5 5.5z"/><path d="M5.5 10v7M10 10v7M14 10v7M18.5 10v7M3.5 19.5h17"/>',
 };
 

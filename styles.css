@@ -487,3 +487,11 @@ input:disabled { opacity: 0.7; cursor: not-allowed; }
 .bill-amount { flex: none; width: 110px; text-align: right; }
 .bill-amount input { text-align: right; }
 .found { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; background: var(--accent-soft); border-radius: 11px; padding: 8px 10px; }
+
+/* ---------- More tab and side business ---------- */
+.subtabs.sections button { font-weight: 600; padding: 9px; }
+.split-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.split-cell { display: grid; gap: 1px; background: var(--field); border-radius: 11px; padding: 8px 10px; min-width: 0; }
+.split-cell strong { font-variant-numeric: tabular-nums; }
+.all-time { margin-top: 14px; }
+.tx-form .split-row { margin: 2px 0; }

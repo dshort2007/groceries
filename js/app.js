@@ -8,7 +8,8 @@ import { renderBudget } from './views/budget.js';
 import { renderTransactions } from './views/transactions.js';
 import { renderBills } from './views/bills.js';
 import { renderDebts } from './views/debts.js';
-import { renderGroceries, GROCERY_ID } from './views/groceries.js';
+import { GROCERY_ID } from './views/groceries.js';
+import { renderMore } from './views/more.js';
 import { refreshBank, syncBank, resumeBankLink } from './views/bank.js';
 
 const TABS = [
@@ -17,7 +18,7 @@ const TABS = [
   ['tx', 'Transactions', renderTransactions],
   ['bills', 'Bills', renderBills],
   ['debts', 'Debts', renderDebts],
-  ['groceries', 'Groceries', renderGroceries],
+  ['more', 'More', renderMore],
 ];
 
 const main = document.getElementById('main');
