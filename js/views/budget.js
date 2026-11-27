@@ -287,7 +287,7 @@ export function renderBudget() {
       h(
         'summary',
         {},
-        h('span', { class: 'group-name' }, name, h('span', { class: 'muted small' }, ` ${list.length}`)),
+        h('span', { class: 'group-name' }, name, h('span', { class: 'muted small' }, ` (${list.length})`)),
         h(
           'span',
           { class: 'group-totals' },

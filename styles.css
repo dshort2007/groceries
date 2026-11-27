@@ -511,7 +511,7 @@ details.group > summary::-webkit-details-marker { display: none; }
 details.group > summary::before { content: "›"; color: var(--muted); font-size: 1.1rem; width: 10px; transition: transform 0.15s; }
 details.group[open] > summary::before { transform: rotate(90deg); }
 .group-name { flex: 1; font-family: var(--rounded); font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-.group-name .small { letter-spacing: 0; font-weight: 400; }
+.group-name .small { letter-spacing: 0; font-weight: 400; margin-left: 4px; }
 .group-totals { display: flex; align-items: center; gap: 10px; }
 details.group .envelope {
   grid-template-columns: 1fr 92px 96px;
