@@ -2,7 +2,8 @@
 // list, stores, prices and settings), saves it, and redraws the screen.
 
 import { optimize, lineCost, storeIsEligible } from './optimizer.js';
-import { loadState, saveState, newId } from './storage.js';
+import { loadState, saveState, clearState, normalizeState, newId } from './storage.js';
+import * as cloud from './cloud.js';
 
 const UNITS = [
   ['each', 'each'],
@@ -42,12 +43,176 @@ function h(tag, props = {}, ...children) {
   return el;
 }
 
+// ---------- Saving and syncing ----------
+
+const statusEl = document.getElementById('save-note');
+const signOutButton = document.getElementById('sign-out');
+let user = null; // who is signed in (null when running without sign-in)
+let dirty = false; // true while this device has changes not yet uploaded
+let pushTimer = null;
+let lastSeen = null; // when the online copy we have was saved
+
+const setStatus = (text) => (statusEl.textContent = text);
+const syncedText = () => `Synced · ${user.email}`;
+const OFFLINE = "Can't reach the server. Changes are kept on this device and will upload when it's back.";
+
 function save() {
-  if (!saveState(state)) {
-    document.getElementById('save-note').textContent =
-      "Couldn't save on this device. Changes will be lost when you close the page.";
+  const ok = saveState(state);
+  if (!user) {
+    if (!ok) setStatus("Couldn't save on this device. Changes will be lost when you close the page.");
+    return;
+  }
+  // Wait a moment before uploading so a burst of typing is one upload.
+  dirty = true;
+  setStatus('Saving…');
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushNow, 800);
+}
+
+async function pushNow() {
+  clearTimeout(pushTimer);
+  pushTimer = null;
+  const sent = JSON.stringify(state);
+  try {
+    lastSeen = Date.parse(await cloud.push(user.id, state));
+    // Only "clean" if nothing changed while the upload was in flight.
+    if (JSON.stringify(state) === sent) {
+      dirty = false;
+      setStatus(syncedText());
+    }
+  } catch {
+    setStatus(OFFLINE);
   }
 }
+
+function replaceState(next) {
+  for (const key of Object.keys(state)) delete state[key];
+  Object.assign(state, next);
+}
+
+const isTyping = () => ['INPUT', 'SELECT'].includes(document.activeElement?.tagName);
+
+// Pick up changes made on other devices. Skipped while you're mid-edit so
+// the screen never changes under your fingers.
+async function checkForChanges() {
+  if (!user || document.hidden || pushTimer) return;
+  if (dirty) return pushNow(); // an earlier upload failed: try again
+  if (isTyping()) return;
+  try {
+    const row = await cloud.pull(user.id);
+    if (dirty || pushTimer || isTyping()) return;
+    const next = row && normalizeState(row.data);
+    if (next && Date.parse(row.updated_at) !== lastSeen) {
+      lastSeen = Date.parse(row.updated_at);
+      replaceState(next);
+      saveState(state);
+      render();
+    }
+    setStatus(syncedText());
+  } catch {
+    setStatus(OFFLINE);
+  }
+}
+
+async function loadFromCloud() {
+  const row = await cloud.pull(user.id);
+  const next = row && normalizeState(row.data);
+  if (next) {
+    lastSeen = Date.parse(row.updated_at);
+    replaceState(next);
+    saveState(state);
+    setStatus(syncedText());
+  } else {
+    // First sign-in ever: upload whatever is already on this device.
+    await pushNow();
+  }
+}
+
+function renderSignIn(message) {
+  const email = h('input', { type: 'email', autocomplete: 'username', required: true });
+  const password = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+  const error = h('p', { class: 'warn' }, message || '');
+  const button = h('button', { type: 'submit', class: 'primary' }, 'Sign in');
+  document.body.classList.add('signed-out');
+  signOutButton.hidden = true;
+  setStatus('');
+  main.replaceChildren(
+    h(
+      'form',
+      {
+        class: 'card sign-in',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          button.disabled = true;
+          error.textContent = '';
+          try {
+            user = await cloud.signIn(email.value.trim(), password.value);
+            await openApp();
+          } catch (err) {
+            user = null;
+            button.disabled = false;
+            error.textContent = err?.message || 'Sign-in failed.';
+          }
+        },
+      },
+      h('h2', {}, 'Sign in'),
+      h('label', { class: 'field' }, h('span', {}, 'Email'), email),
+      h('label', { class: 'field' }, h('span', {}, 'Password'), password),
+      button,
+      error
+    )
+  );
+}
+
+async function openApp() {
+  document.body.classList.remove('signed-out');
+  signOutButton.hidden = false;
+  try {
+    await loadFromCloud();
+  } catch (err) {
+    document.body.classList.add('signed-out');
+    main.replaceChildren(
+      h(
+        'div',
+        { class: 'card' },
+        h('h2', {}, "Couldn't load your list"),
+        h('p', { class: 'warn' }, err?.message || 'Unknown error.'),
+        h('button', { class: 'primary', onclick: openApp }, 'Try again')
+      )
+    );
+    return;
+  }
+  render();
+}
+
+async function start() {
+  if (!cloud.configured) {
+    setStatus('Saved on this device only.');
+    return render();
+  }
+  if (!cloud.ready) {
+    return main.replaceChildren(h('p', { class: 'empty' }, 'The app didn\'t load completely. Check your connection and reload the page.'));
+  }
+  user = await cloud.currentUser();
+  if (!user) return renderSignIn();
+  await openApp();
+}
+
+signOutButton.addEventListener('click', async () => {
+  if (dirty) await pushNow();
+  if (dirty && !confirm("Your latest changes haven't uploaded yet. Sign out and lose them?")) return;
+  await cloud.signOut();
+  clearState();
+  location.reload();
+});
+
+setInterval(checkForChanges, 15000);
+window.addEventListener('focus', checkForChanges);
+document.addEventListener('visibilitychange', () => {
+  // Leaving the page: upload right away instead of waiting.
+  if (document.hidden && user && pushTimer) pushNow();
+  else checkForChanges();
+});
 
 function render() {
   for (const tab of document.querySelectorAll('nav button')) {
@@ -476,4 +641,4 @@ for (const tab of document.querySelectorAll('nav button')) {
     render();
   });
 }
-render();
+start();

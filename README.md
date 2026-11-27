@@ -13,8 +13,23 @@ cheapest way to buy everything: all at one store, or split across a few.
 - **Stores**: add or remove stores, mark memberships (Sam's Club, Walmart+),
   and set per-trip fees such as delivery.
 
-Data is saved in the browser on the device you're using. It does not sync
-between devices yet.
+Everyone in the house signs in with the same email and password and sees the
+same list, stores and prices. Changes show up on other devices within about
+15 seconds. If the connection drops, changes are kept on the device and
+uploaded when it's back.
+
+One limit: the whole list is saved as a single record, so if two people make
+changes within a few seconds of each other, the later save wins.
+
+## One-time Supabase setup
+
+1. In Supabase, open **SQL Editor**, paste in `supabase/setup.sql`, and Run.
+2. Open **Authentication > Users > Add user > Create new user**. Enter the
+   household email and a password, and leave **Auto Confirm User** ticked.
+3. Optional: under **Authentication > Sign In / Providers**, turn off
+   **Allow new users to sign up** so nobody else can create a login.
+
+The project address and public key are in `js/config.js`.
 
 ## Running it
 
@@ -38,12 +53,17 @@ To check the price math:
 | `styles.css` | How it looks |
 | `js/optimizer.js` | The price math and best-plan logic |
 | `js/app.js` | The screens and buttons |
-| `js/storage.js` | Saving and loading data |
+| `js/cloud.js` | Sign-in and syncing with Supabase |
+| `js/storage.js` | The copy of the data kept on each device |
+| `js/config.js` | Which Supabase project to use |
+| `js/vendor/supabase.js` | Supabase's own library, copied in unchanged |
+| `supabase/setup.sql` | One-time database setup |
 | `tests/optimizer.test.js` | Automatic checks for the price math |
 
 ## Not built yet
 
-- Accounts and syncing between devices and people
+- Hosting at a web address
+- Separate accounts per person or per household
 - Automatic prices from Kroger's developer API
 - Price history
 - Coupons that apply to a whole order ("$5 off $50")

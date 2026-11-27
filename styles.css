@@ -199,3 +199,9 @@ footer {
   .add-form:has(select) { grid-template-columns: 1fr 1fr auto; }
   .add-form:has(select) input[type="text"] { grid-column: 1 / -1; }
 }
+
+/* Sign-in */
+.signed-out nav { display: none; }
+.sign-in { display: grid; gap: 12px; max-width: 360px; margin: 32px auto; }
+.sign-in .warn { margin: 0; min-height: 1.3em; }
+footer button { margin-left: 8px; padding: 4px 10px; font-size: 0.8rem; }

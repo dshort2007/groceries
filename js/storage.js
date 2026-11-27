@@ -1,7 +1,6 @@
-// Where the app's data lives. Right now that's the browser's own storage on
-// this one device. Everything that saves or loads goes through these two
-// functions, so moving to an online database later means changing this file
-// only.
+// The copy of the data kept in this browser. It makes the app open instantly
+// and keeps your changes if the connection drops. The shared online copy is
+// handled in cloud.js.
 
 const KEY = 'groceries-v1';
 
@@ -29,17 +28,34 @@ function defaultState() {
   };
 }
 
-export function loadState() {
+// Fill in anything missing from saved data. Returns null if it isn't ours.
+export function normalizeState(saved) {
+  if (!saved || !Array.isArray(saved.items) || !Array.isArray(saved.stores)) return null;
   const base = defaultState();
+  return {
+    ...base,
+    ...saved,
+    prices: saved.prices || {},
+    settings: { ...base.settings, ...saved.settings },
+  };
+}
+
+export function loadState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY));
-    if (saved && Array.isArray(saved.items) && Array.isArray(saved.stores)) {
-      return { ...base, ...saved, settings: { ...base.settings, ...saved.settings } };
-    }
+    const state = normalizeState(JSON.parse(localStorage.getItem(KEY)));
+    if (state) return state;
   } catch {
     // Nothing saved yet, or storage is unavailable: start fresh.
   }
-  return base;
+  return defaultState();
+}
+
+export function clearState() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // Nothing to clear.
+  }
 }
 
 export function saveState(state) {
