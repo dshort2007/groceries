@@ -17,3 +17,7 @@ create policy "Each login reads and writes only its own row"
   to authenticated
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
+
+-- Let signed-in logins use the table at all. (The rule above then limits
+-- each one to its own row.) Newer Supabase projects don't do this for you.
+grant select, insert, update on public.households to authenticated;
