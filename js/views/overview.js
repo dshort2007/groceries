@@ -76,6 +76,7 @@ function looseEnds(d) {
 
   for (const b of d.overdue) add('bills', `Overdue: ${b.name} was due ${plural(daysBetween(b.nextDue, d.now), 'day')} ago. Pay it, or mark it paid.`, 'urgent');
   const bank = bankSummary();
+  if (bank.outdated) add('tx', 'The bank function on Supabase is an older version. Paste in the latest code and deploy it.', 'info');
   for (const item of bank.items.filter((i) => i.error)) add('tx', `${item.institution} has stopped sending transactions. It needs you to reconnect.`, 'urgent');
 
   const left = d.budget.leftToAssign;

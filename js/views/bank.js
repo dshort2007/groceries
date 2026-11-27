@@ -11,13 +11,16 @@ import * as db from '../db.js';
 const LINK_KEY = 'plaid-link';
 const PLAID_SCRIPT = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
 
-const state = { loaded: false, available: false, problem: '', items: [], busy: '', message: '' };
+// The version of supabase/functions/plaid/index.ts this app expects.
+const FUNCTION_VERSION = 2;
+
+const state = { loaded: false, available: false, outdated: false, problem: '', items: [], busy: '', message: '' };
 let startDate = today();
 
 const call = (action, body = {}) => db.callFunction('plaid', { action, ...body });
 
 // What other tabs may know: which banks are connected and any trouble.
-export const bankSummary = () => ({ items: state.available ? state.items : [] });
+export const bankSummary = () => ({ items: state.available ? state.items : [], outdated: state.available && state.outdated });
 
 let refreshing = null;
 export function refreshBank() {
@@ -35,6 +38,7 @@ async function loadStatus() {
       throw new Error(`The "plaid" function gave an unexpected reply: ${JSON.stringify(reply).slice(0, 120)}. It may still contain the sample code instead of the code from supabase/functions/plaid/index.ts.`);
     }
     state.items = reply.items;
+    state.outdated = (reply.version || 1) < FUNCTION_VERSION;
     state.available = true;
   } catch (err) {
     state.available = false;
@@ -62,6 +66,7 @@ export async function syncBank(force) {
   try {
     const result = await call('sync', { force });
     if (Array.isArray(result?.items)) state.items = result.items;
+    state.outdated = (result?.version || 1) < FUNCTION_VERSION;
     const bits = [
       result.added && `${result.added} new`,
       result.matched && `${result.matched} matched to ones you'd entered`,
@@ -264,8 +269,9 @@ export function renderBank() {
   const trouble = state.items.some((i) => i.error);
   return h(
     'details',
-    { class: 'card', open: state.items.length === 0 || unmatched || trouble || !!state.busy || !!state.message || undefined },
+    { class: 'card', open: state.items.length === 0 || unmatched || trouble || state.outdated || !!state.busy || !!state.message || undefined },
     h('summary', {}, 'Bank connections', state.items.length > 0 && h('span', { class: 'muted' }, ` ${state.items.map((i) => i.institution).join(', ')}`)),
+    state.outdated && h('p', { class: 'warn' }, 'The "plaid" function on Supabase is an older version. It still works, but paste in the latest supabase/functions/plaid/index.ts and deploy to get the newest behaviour.'),
     state.items.map(renderItem),
     state.busy && h('p', {}, state.busy),
     state.message && h('p', { class: 'small' }, state.message),
@@ -281,6 +287,6 @@ export function renderBank() {
       ),
       h('button', { class: 'primary', disabled: !!state.busy, onclick: () => connect() }, 'Connect a bank')
     ),
-    h('p', { class: 'muted small' }, "You sign in to your bank in Plaid's window; this app never sees your bank password. Purchases the bank still shows as pending appear here once they're final, usually a day or two later.")
+    h('p', { class: 'muted small' }, "You sign in to your bank in Plaid's window; this app never sees your bank password. Purchases the bank hasn't finalised yet come in marked Pending; if the final amount is different, it replaces the pending one.")
   );
 }

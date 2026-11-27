@@ -49,14 +49,58 @@ test('new bank transactions become records, signed the app way and filed by rule
   assert.equal(changes[0].id, await uuidFor('plaid:t1'));
 });
 
-test('pending purchases and anything before the start date are left out', async () => {
+test('pending purchases come in marked pending; anything before the start date is left out', async () => {
   const { plaid, store } = fakes([page([
     bank('t1', '2026-11-28', 10, 'A', { pending: true }),
     bank('t2', '2026-11-20', 10, 'B'),
     bank('t3', '2026-11-27', 10, 'C'),
   ])]);
   const { changes } = await syncItem(item, plaid, store);
-  assert.deepEqual(changes.map((c) => c.data.plaidId), ['t3']);
+  assert.deepEqual(changes.map((c) => [c.data.plaidId, c.data.pending]), [['t1', true], ['t3', undefined]]);
+});
+
+test('a pending purchase that becomes final keeps its envelope and takes the final amount', async () => {
+  const pending = { id: 'p1', kind: 'tx', deleted: false, data: { date: '2026-11-28', payee: 'Chili\'s', amount: -40, envelopeId: 'env-dining', plaidId: 'pend1', pending: true } };
+  const { plaid, store } = fakes([{
+    added: [bank('final1', '2026-11-29', 48, 'CHILIS', { pending_transaction_id: 'pend1' })],
+    modified: [],
+    removed: [{ transaction_id: 'pend1' }],
+    next_cursor: 'c2',
+    has_more: false,
+  }], [pending]);
+  const { changes, counts } = await syncItem(item, plaid, store);
+  assert.deepEqual(counts, { added: 0, matched: 0, updated: 1, removed: 0 });
+  assert.equal(changes.length, 1);
+  assert.deepEqual(changes[0], { ...pending, data: { date: '2026-11-29', payee: 'Chili\'s', amount: -48, envelopeId: 'env-dining', plaidId: 'final1' } });
+});
+
+test('a pending hold that simply disappears is removed; an unknown one is added as new', async () => {
+  const hold = { id: 'p1', kind: 'tx', deleted: false, data: { date: '2026-11-28', payee: 'Gas hold', amount: -100, plaidId: 'pend1', pending: true } };
+  const { plaid, store } = fakes([{
+    added: [bank('final2', '2026-11-29', 37.5, 'SHELL', { pending_transaction_id: 'never-imported' })],
+    modified: [],
+    removed: [{ transaction_id: 'pend1' }],
+    next_cursor: 'c2',
+    has_more: false,
+  }], [hold]);
+  const { changes, counts } = await syncItem(item, plaid, store);
+  assert.deepEqual(counts, { added: 1, matched: 0, updated: 0, removed: 1 });
+  assert.equal(changes[0].data.plaidId, 'final2');
+  assert.equal(changes[0].data.pending, undefined);
+  assert.deepEqual(changes[1], { ...hold, deleted: true });
+});
+
+test('a typed-in purchase matched to a pending one follows it through to final', async () => {
+  const typed = { id: 'm1', kind: 'tx', deleted: false, data: { date: '2026-11-28', payee: 'Kroger', amount: -52.1, envelopeId: 'env-groc', accountId: '' } };
+  const first = fakes([page([bank('pend9', '2026-11-28', 52.1, 'KROGER', { pending: true })])], [typed]);
+  const one = await syncItem(item, first.plaid, first.store);
+  assert.deepEqual(one.counts, { added: 0, matched: 1, updated: 0, removed: 0 });
+  assert.equal(one.changes[0].data.pending, true);
+
+  const second = fakes([{ added: [bank('fin9', '2026-11-29', 52.1, 'KROGER', { pending_transaction_id: 'pend9' })], modified: [], removed: [{ transaction_id: 'pend9' }], next_cursor: 'c3', has_more: false }], one.changes);
+  const two = await syncItem(item, second.plaid, second.store);
+  assert.equal(two.changes.length, 1);
+  assert.deepEqual(two.changes[0].data, { date: '2026-11-29', payee: 'Kroger', amount: -52.1, envelopeId: 'env-groc', accountId: '', plaidId: 'fin9', plaidAccountId: 'acct-chk' });
 });
 
 test('follows every page and passes the bookmark along', async () => {

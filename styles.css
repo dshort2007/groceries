@@ -479,3 +479,5 @@ select.unfiled { background: var(--warn-soft); }
 .card.overdue { border-color: var(--danger); }
 .sign-in { margin-top: 48px; }
 footer { padding-top: 8px; }
+
+.badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; background: var(--warn-soft); color: var(--warn); vertical-align: 1px; }

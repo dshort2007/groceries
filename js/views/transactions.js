@@ -394,7 +394,7 @@ function renderRow(t) {
     h(
       'div',
       { class: 'tx-line' },
-      h('span', {}, h('span', { class: 'muted small' }, t.date.slice(5).replace('-', '/') + ' '), t.payee || '(no name)', account && h('span', { class: 'muted small' }, ` · ${account}`)),
+      h('span', {}, h('span', { class: 'muted small' }, t.date.slice(5).replace('-', '/') + ' '), t.payee || '(no name)', account && h('span', { class: 'muted small' }, ` · ${account}`), t.pending && h('span', { class: 'badge', title: "The bank hasn't finalised this yet, so the amount may still change." }, 'Pending')),
       h('strong', { class: t.amount > 0 ? 'pos' : null }, money(t.amount))
     ),
     h(

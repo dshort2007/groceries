@@ -12,6 +12,10 @@
 // Settings it needs (Supabase > Edge Functions > Secrets):
 //   PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV ("sandbox" or "production")
 
+// Bump this whenever the function changes, so the app can tell when the
+// copy running on Supabase is out of date.
+export const VERSION = 2;
+
 const HOSTS = {
   sandbox: 'https://sandbox.plaid.com',
   production: 'https://production.plaid.com',
@@ -68,35 +72,51 @@ export async function syncItem(item, plaid, store, now = Date.now()) {
     more = page.has_more;
   }
 
-  // Skip purchases the bank still shows as pending (they come back as a
-  // new, final transaction a day or two later), and anything from before
-  // the date the family chose to start from.
-  const posted = [...latest.values()].filter((t) => !t.pending && t.date >= item.start_date);
+  // Leave out anything from before the date the family chose to start
+  // from, and anything the bank added and took away again in one go.
+  const gone = new Set(removedIds);
+  const incoming = [...latest.values()].filter((t) => t.date >= item.start_date && !gone.has(t.transaction_id));
 
-  const known = await store.txByPlaidIds([...posted.map((t) => t.transaction_id), ...removedIds]);
+  // A purchase first arrives as "pending". When the bank finalises it, the
+  // pending one is removed and a final one arrives that names the pending
+  // one it replaces, so look those up too.
+  const lookups = [...incoming.map((t) => t.transaction_id), ...incoming.map((t) => t.pending_transaction_id).filter(Boolean), ...removedIds];
+  const known = await store.txByPlaidIds(lookups);
   const accountFor = new Map();
   for (const a of await store.records('account')) {
     if (a.data.plaidAccountId) accountFor.set(a.data.plaidAccountId, a.id);
   }
   const rules = new Map((await store.records('rule')).map((r) => [r.data.key, r.data.envelopeId]));
-  const earliest = posted.reduce((min, t) => (t.date < min ? t.date : min), '9999-12-31');
-  const typedIn = posted.length ? await store.manualTxSince(shiftDays(earliest, -5)) : [];
+  const earliest = incoming.reduce((min, t) => (t.date < min ? t.date : min), '9999-12-31');
+  const typedIn = incoming.length ? await store.manualTxSince(shiftDays(earliest, -5)) : [];
   const claimed = new Set();
+  const finalised = new Set(); // pending ids that turned into final ones
 
   const changes = [];
   const counts = { added: 0, matched: 0, updated: 0, removed: 0 };
 
-  for (const t of posted) {
+  for (const t of incoming) {
     const amount = -t.amount; // Plaid: money out is positive. The app: negative.
     const accountId = accountFor.get(t.account_id) || '';
-    const existing = known.get(t.transaction_id);
+    const replaces = t.pending_transaction_id && known.has(t.pending_transaction_id) ? t.pending_transaction_id : null;
+    const existing = known.get(t.transaction_id) || (replaces && known.get(replaces));
 
     if (existing) {
-      // The bank corrected something. Keep the family's own edits (name,
-      // envelope) and only take the bank's date and amount.
+      // Either the bank corrected something, or a pending purchase became
+      // final (often with a new amount: a tip added, a gas hold settled).
+      // Keep the family's own edits (name, envelope) and take the bank's
+      // date, amount and pending status.
+      if (replaces) finalised.add(replaces);
       if (existing.deleted) continue;
-      const data = { ...existing.data, date: t.date, amount };
-      if (existing.data.amount === amount && existing.data.date === t.date) continue;
+      const data = { ...existing.data, date: t.date, amount, plaidId: t.transaction_id };
+      if (t.pending) data.pending = true;
+      else delete data.pending;
+      const same =
+        existing.data.amount === amount &&
+        existing.data.date === t.date &&
+        existing.data.plaidId === t.transaction_id &&
+        !!existing.data.pending === !!t.pending;
+      if (same) continue;
       if (existing.data.splits && existing.data.amount !== amount) {
         delete data.splits; // the pieces no longer add up: ask again
         data.envelopeId = '';
@@ -120,7 +140,7 @@ export async function syncItem(item, plaid, store, now = Date.now()) {
       claimed.add(twin.id);
       changes.push({
         ...twin,
-        data: { ...twin.data, plaidId: t.transaction_id, plaidAccountId: t.account_id, accountId: twin.data.accountId || accountId },
+        data: { ...twin.data, plaidId: t.transaction_id, plaidAccountId: t.account_id, accountId: twin.data.accountId || accountId, ...(t.pending ? { pending: true } : {}) },
       });
       counts.matched++;
       continue;
@@ -140,12 +160,14 @@ export async function syncItem(item, plaid, store, now = Date.now()) {
         plaidAccountId: t.account_id,
         plaidId: t.transaction_id,
         created: now + counts.added,
+        ...(t.pending ? { pending: true } : {}),
       },
     });
     counts.added++;
   }
 
   for (const id of removedIds) {
+    if (finalised.has(id)) continue; // not gone: it became the final one above
     const existing = known.get(id);
     if (existing && !existing.deleted) {
       changes.push({ ...existing, deleted: true });
@@ -224,7 +246,7 @@ const publicItem = ({ item_id, institution, accounts, start_date, last_sync, err
 });
 
 async function run(action, body, user, plaid, store) {
-  if (action === 'status') return { items: (await store.items()).map(publicItem) };
+  if (action === 'status') return { version: VERSION, items: (await store.items()).map(publicItem) };
 
   if (action === 'link_token') {
     const request = {
@@ -309,7 +331,7 @@ async function run(action, body, user, plaid, store) {
         results.push(publicItem(failed));
       }
     }
-    return { ...totals, items: results };
+    return { version: VERSION, ...totals, items: results };
   }
 
   throw new Error('Unknown action.');
