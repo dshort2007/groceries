@@ -4,6 +4,7 @@
 import { h, money, num, numberField, rerender } from '../ui.js';
 import { today, readBankCsv, payeeKey, accountBalances } from '../money.js';
 import { envelopeSelect, accountSelect, accounts, envelopeName } from './shared.js';
+import { renderBank } from './bank.js';
 import * as db from '../db.js';
 
 let onlyUnfiled = false;
@@ -428,5 +429,5 @@ export function renderTransactions() {
     shown.length > limit && h('div', { class: 'button-row' }, h('button', { onclick: () => { limit += 100; rerender(); } }, 'Show more'))
   );
 
-  return [renderAccounts(all), renderAddForm(), renderImport(), list];
+  return [renderAccounts(all), renderBank(), renderAddForm(), renderImport(), list];
 }

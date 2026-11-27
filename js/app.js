@@ -8,6 +8,7 @@ import { renderTransactions } from './views/transactions.js';
 import { renderBills } from './views/bills.js';
 import { renderDebts } from './views/debts.js';
 import { renderGroceries, GROCERY_ID } from './views/groceries.js';
+import { refreshBank, syncBank, resumeBankLink } from './views/bank.js';
 
 const TABS = [
   ['budget', 'Budget', renderBudget],
@@ -113,7 +114,11 @@ async function openApp() {
   }
   document.body.classList.remove('signed-out');
   open = true;
+  if (/[?&]oauth_state_id=/.test(location.search)) view = 'tx'; // back from the bank's sign-in
   render();
+  // Bank connections: finish one in progress, then fetch anything new.
+  resumeBankLink();
+  refreshBank().then(() => syncBank(false));
 }
 
 async function start() {

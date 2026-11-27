@@ -34,11 +34,32 @@ on its own, so two people can work at the same time.
 Only logins listed in that last statement can see or change anything.
 `supabase/setup.sql` is the setup for the earlier grocery-only version.
 
+## Automatic bank connections (optional)
+
+The app can pull transactions from your banks through Plaid. Plaid's secret
+key and the tokens that unlock each bank are kept on Supabase's servers, in a
+small server-side program (`supabase/functions/plaid/index.ts`) and a locked
+table that no browser can read.
+
+1. **Plaid dashboard**: copy your client ID and your Sandbox and Production
+   secrets. Add this app's address (ending in `/`) to the allowed redirect
+   URIs.
+2. **Supabase SQL Editor**: run `supabase/setup-plaid.sql`.
+3. **Supabase > Edge Functions > Secrets**: add `PLAID_CLIENT_ID`,
+   `PLAID_SECRET` and `PLAID_ENV` (`sandbox` to test with Plaid's fake bank,
+   `production` for real banks).
+4. **Supabase > Edge Functions**: create a function named `plaid`, paste in
+   the contents of `supabase/functions/plaid/index.ts`, and deploy. Turn off
+   the "Verify JWT" option: the function does its own, stricter check (signed
+   in *and* on the family list).
+
+Then use **Transactions > Bank connections** in the app.
+
 ## Privacy
 
 This repository is public, and that's fine: it holds only the app's code. All
 financial data lives in the Supabase database behind the sign-in. Never commit
-a spreadsheet, bank file or setup file to this repository.
+a spreadsheet, bank file, setup file or secret key to this repository.
 
 ## Running it on your own computer
 
@@ -57,11 +78,10 @@ a spreadsheet, bank file or setup file to this repository.
 | `js/db.js` | Storing data and syncing it with Supabase |
 | `js/config.js` | Which Supabase project to use |
 | `js/vendor/supabase.js` | Supabase's own library, copied in unchanged |
-| `supabase/` | Database setup scripts |
+| `supabase/` | Database setup scripts, and the server-side bank function |
 | `tests/` | Automatic checks for the math |
 
 ## Not built yet
 
-- Automatic bank connections
 - Adding interest to debt balances automatically
 - Reports (spending over time)

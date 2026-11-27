@@ -215,6 +215,22 @@ export async function signOut() {
   }
 }
 
+// Ask a server-side function (supabase/functions/) to do something.
+export async function callFunction(name, body) {
+  const { data, error } = await client.functions.invoke(name, { body });
+  if (!error) return data;
+  // The function explains what went wrong in its reply; dig that out.
+  let detail = null;
+  try {
+    detail = await error.context.json();
+  } catch {
+    // No readable reply (for example, the function doesn't exist yet).
+  }
+  const err = new Error(detail?.error || detail?.message || error.message);
+  err.code = detail?.code;
+  throw err;
+}
+
 // The grocery list saved by the first version of the app, if there is one.
 export async function oldGroceryList() {
   const { data } = await client.from('households').select('data').eq('user_id', user.id).maybeSingle();
