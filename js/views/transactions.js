@@ -17,6 +17,18 @@ let importAccount = '';
 const TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['credit', 'Credit card'], ['cash', 'Cash']];
 const rules = () => new Map(db.all('rule').map((r) => [r.key, r]));
 
+// Each person can name their own pocket-money envelope. It's stored under
+// their login, so "Mine" means something different on each person's phone.
+const LOCAL_PERSON = '00000000-0000-4000-8000-000000000004';
+const me = () => {
+  const id = db.userId() || LOCAL_PERSON;
+  return { ...db.get(id), id };
+};
+const myEnvelope = () => {
+  const envelope = db.get(me().envelopeId);
+  return envelope && !envelope.archived ? envelope : null;
+};
+
 // Remember which envelope this payee goes in, for next time.
 function learn(payee, envelopeId) {
   const key = payeeKey(payee);
@@ -373,7 +385,7 @@ function renderEditor(t) {
   );
 }
 
-function renderRow(t) {
+function renderRow(t, mine) {
   if (draft?.id === t.id) return renderEditor(t);
   const account = db.get(t.accountId)?.name || t.account;
   const edit = () => {
@@ -403,6 +415,11 @@ function renderRow(t) {
       t.splits
         ? h('span', { class: 'small' }, 'Split: ', t.splits.map((p) => `${envelopeName(p.envelopeId)} ${money(Math.abs(p.amount))}`).join(' · '))
         : envelopeSelect(t.envelopeId, (v) => { learn(t.payee, v); db.put('tx', { ...t, envelopeId: v }); rerender(); }, { key: `env-${t.id}` }),
+      // One tap for personal spending. It deliberately doesn't "learn" the
+      // payee: buying something for yourself at Target shouldn't send every
+      // future Target trip to pocket money.
+      mine && !t.envelopeId && !t.splits && t.amount < 0 &&
+        h('button', { title: `File under ${mine.name}`, onclick: () => { db.put('tx', { ...t, envelopeId: mine.id }); rerender(); } }, 'Mine'),
       h('button', { class: 'link', onclick: edit }, 'Edit')
     )
   );
@@ -413,6 +430,7 @@ export function renderTransactions() {
   const unfiled = all.filter((t) => (t.splits ? t.splits.some((p) => !p.envelopeId) : !t.envelopeId));
   if (unfiled.length === 0) onlyUnfiled = false;
   const shown = onlyUnfiled ? unfiled : all;
+  const mine = myEnvelope();
 
   const list = h(
     'div',
@@ -425,7 +443,14 @@ export function renderTransactions() {
         h('button', { class: 'link', onclick: () => { onlyUnfiled = !onlyUnfiled; rerender(); } }, onlyUnfiled ? 'Show all' : `${unfiled.length} need an envelope`)
     ),
     shown.length === 0 && h('p', { class: 'empty' }, 'Nothing here yet.'),
-    shown.slice(0, limit).map(renderRow),
+    h(
+      'label',
+      { class: 'field inline mine-pick' },
+      h('span', {}, 'My personal spending goes in'),
+      envelopeSelect(mine?.id || '', (v) => { db.put('person', { ...me(), envelopeId: v }); rerender(); }, { special: false, blank: 'Not set' })
+    ),
+    !mine && unfiled.length > 0 && h('p', { class: 'muted small' }, 'Choose your own pocket-money envelope here and each unfiled purchase gets a one-tap "Mine" button. Each person sets their own.'),
+    shown.slice(0, limit).map((t) => renderRow(t, mine)),
     shown.length > limit && h('div', { class: 'button-row' }, h('button', { onclick: () => { limit += 100; rerender(); } }, 'Show more'))
   );
 

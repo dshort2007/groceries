@@ -176,6 +176,9 @@ export async function sync() {
 
 export const hasUnsaved = () => dirty.size > 0;
 
+// Who is signed in on this device (null when running without sign-in).
+export const userId = () => user?.id ?? null;
+
 // ---------- Signing in ----------
 
 export async function start() {
