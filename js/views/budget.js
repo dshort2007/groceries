@@ -1,7 +1,7 @@
 // The weekly envelope budget.
 
 import { h, money, num, numberField, rerender, goTo } from '../ui.js';
-import { today, addDays, weekStart, budgetFor } from '../money.js';
+import { today, addDays, weekStart, budgetFor, monthlyTargets } from '../money.js';
 import * as db from '../db.js';
 
 let week = weekStart(today());
@@ -95,7 +95,7 @@ function renderEmpty() {
   );
 }
 
-function renderEnvelope(e, row) {
+function renderEnvelope(e, row, target) {
   if (editing) {
     const update = (field, value) => { db.put('envelope', { ...e, [field]: value }); rerender(); };
     return h(
@@ -103,7 +103,10 @@ function renderEnvelope(e, row) {
       { class: 'envelope editing' },
       h('label', { class: 'field grow' }, h('span', {}, 'Name'), h('input', { type: 'text', value: e.name, data: { key: `name-${e.id}` }, onchange: (ev) => update('name', ev.target.value.trim() || e.name) })),
       h('label', { class: 'field grow' }, h('span', {}, 'Group'), h('input', { type: 'text', value: e.group || '', list: 'groups', data: { key: `group-${e.id}` }, onchange: (ev) => update('group', ev.target.value.trim()) })),
-      numberField('Monthly target', e.plan || '', (v) => update('plan', v ?? 0), { key: `plan-${e.id}` }),
+      // An envelope that pays bills takes its target from them.
+      target.bills.length > 0
+        ? h('label', { class: 'field' }, h('span', {}, 'Monthly target'), h('input', { type: 'text', value: money(target.amount), disabled: true, title: 'Set by the bills paid from this envelope. Change the bill to change this.' }))
+        : numberField('Monthly target', e.plan || '', (v) => update('plan', v ?? 0), { key: `plan-${e.id}` }),
       h(
         'button',
         {
@@ -121,7 +124,7 @@ function renderEnvelope(e, row) {
     );
   }
 
-  const plan = Number(e.plan) || 0;
+  const plan = target.amount;
   return h(
     'div',
     { class: 'envelope' },
@@ -152,6 +155,7 @@ export function renderBudget() {
     week
   );
   const left = budget.leftToAssign;
+  const targets = monthlyTargets(envelopes, db.all('bill'));
 
   const nav = h(
     'div',
@@ -223,7 +227,7 @@ export function renderBudget() {
       'section',
       { class: 'card group' },
       h('h3', {}, h('span', {}, name), h('span', { class: 'muted' }, money(available))),
-      list.map((e) => renderEnvelope(e, budget.rows.get(e.id)))
+      list.map((e) => renderEnvelope(e, budget.rows.get(e.id), targets.get(e.id)))
     );
   });
 
@@ -250,7 +254,7 @@ export function renderBudget() {
     summary,
     todo,
     ...groups,
-    editing && h('p', { class: 'muted small' }, 'Monthly target is optional: roughly what you mean to put in that envelope each month. It moves no money. It only lets the app show how far along you are ("$200 of $440 this month") and where the gaps are on the Overview.'),
+    editing && h('p', { class: 'muted small' }, 'Monthly target is optional: roughly what you mean to put in that envelope each month. If bills are paid from an envelope, its target is worked out from them (a $72 bill every 3 months counts as $24 a month) and is changed on the Bills tab. It moves no money. It only lets the app show how far along you are ("$200 of $440 this month") and where the gaps are on the Overview.'),
     h('datalist', { id: 'groups' }, [...grouped(envelopes).keys()].map((g) => h('option', { value: g }))),
     h(
       'div',

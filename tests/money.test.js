@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -165,4 +165,21 @@ test('payments from the linked envelope bring a debt balance down', () => {
   const importedLater = { ...typedLater, importKey: 'x' };
   assert.equal(debtStatus(sameDay, [typedLater]).paid, 30);
   assert.equal(debtStatus(sameDay, [importedLater]).paid, 0);
+});
+
+test("an envelope's monthly target comes from its bills when it has any", () => {
+  const envs = [{ id: 'rent', plan: 2137 }, { id: 'trash', plan: 0 }, { id: 'groc', plan: 440 }, { id: 'subs', plan: 5 }];
+  const bills = [
+    { envelopeId: 'rent', amount: 2145, every: 1 },
+    { envelopeId: 'trash', amount: 72, every: 3 },
+    { envelopeId: 'subs', amount: 9.99, every: 1 },
+    { envelopeId: 'subs', amount: 120, every: 12 },
+    { envelopeId: 'groc', amount: 0, every: 1 }, // no amount yet: ignored
+  ];
+  const t = monthlyTargets(envs, bills);
+  assert.equal(t.get('rent').amount, 2145); // the bill wins over the typed 2137
+  assert.equal(t.get('trash').amount, 24);
+  assert.equal(t.get('subs').amount, 19.99);
+  assert.equal(t.get('subs').bills.length, 2);
+  assert.deepEqual(t.get('groc'), { amount: 440, bills: [] });
 });

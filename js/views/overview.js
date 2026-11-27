@@ -3,7 +3,7 @@
 // tabs show; nothing is stored.
 
 import { h, icon, money, goTo } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts } from '../money.js';
+import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets } from '../money.js';
 import { bankSummary } from './bank.js';
 import { when, span, SETTINGS_ID } from './debts.js';
 import * as db from '../db.js';
@@ -27,7 +27,10 @@ function gather() {
   const week = weekStart(now);
   const month = now.slice(0, 7);
   const envelopes = db.all('envelope');
-  const live = envelopes.filter((e) => !e.archived);
+  const bills = db.all('bill');
+  // Each envelope with its real monthly target (from its bills, if any).
+  const targets = monthlyTargets(envelopes, bills);
+  const live = envelopes.filter((e) => !e.archived).map((e) => ({ ...e, plan: targets.get(e.id).amount }));
   const txs = db.all('tx');
   const accounts = db.all('account');
   const budget = budgetFor({ envelopes, transactions: txs, assignments: db.all('assign'), accounts }, week);
@@ -37,7 +40,6 @@ function gather() {
   const cash = sum(accounts.filter((a) => a.type !== 'credit'), (a) => balances.get(a.id));
   const cardsOwed = -sum(accounts.filter((a) => a.type === 'credit'), (a) => balances.get(a.id));
 
-  const bills = db.all('bill');
   const soon = addDays(now, 7);
   const overdue = bills.filter((b) => b.nextDue < now);
   const dueSoon = bills.filter((b) => b.nextDue >= now && b.nextDue <= soon);

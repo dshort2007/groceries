@@ -134,6 +134,28 @@ export function dueAfter(bill) {
   return addMonths(bill.nextDue, Number(bill.every) || 1, Number(bill.day) || Number(bill.nextDue.slice(8)));
 }
 
+// What an envelope needs each month. If bills are paid from it, they decide:
+// their amounts, spread over how often each comes around (a $72 bill every
+// 3 months is $24 a month). Otherwise it's the target typed on the envelope.
+// Returns a map of envelope id -> { amount, bills: [the bills behind it] }.
+export function monthlyTargets(envelopes, bills) {
+  const byEnvelope = new Map();
+  for (const b of bills) {
+    if (!b.envelopeId || !(Number(b.amount) > 0)) continue;
+    if (!byEnvelope.has(b.envelopeId)) byEnvelope.set(b.envelopeId, []);
+    byEnvelope.get(b.envelopeId).push(b);
+  }
+  const targets = new Map();
+  for (const e of envelopes) {
+    const own = byEnvelope.get(e.id) || [];
+    const amount = own.length
+      ? round2(own.reduce((sum, b) => sum + Number(b.amount) / (Number(b.every) || 1), 0))
+      : Number(e.plan) || 0;
+    targets.set(e.id, { amount, bills: own });
+  }
+  return targets;
+}
+
 // ---------- Debt payoff ----------
 
 // A debt's balance is whatever the last statement said, minus payments made
