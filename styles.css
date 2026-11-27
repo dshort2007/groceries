@@ -318,3 +318,28 @@ nav button { white-space: nowrap; }
 .bank { gap: 10px; }
 .bank-actions { display: grid; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 button.link.danger { justify-self: start; color: var(--danger); }
+
+/* ---------- Overview ---------- */
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
+.tile { text-align: left; margin: 0; display: grid; gap: 2px; align-content: start; }
+.tile-value { font-size: 1.35rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.end {
+  display: flex; justify-content: space-between; gap: 12px; align-items: center;
+  width: 100%; text-align: left; border: none; border-top: 1px solid var(--line);
+  border-radius: 0; background: none; padding: 10px 0;
+}
+.ideas { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.meters { display: grid; gap: 10px; }
+/* Fixed side columns so every bar starts and ends at the same place. */
+.meter-row { display: grid; grid-template-columns: 130px 1fr 190px; gap: 12px; align-items: center; }
+.meter-figure { font-size: 0.875rem; font-variant-numeric: tabular-nums; text-align: right; }
+/* The unfilled track is a lighter step of the fill's own colour. */
+.meter { display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 22%, transparent); overflow: hidden; }
+.meter > span { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.meter.over { background: color-mix(in srgb, var(--danger) 22%, transparent); }
+.meter.over > span { background: var(--danger); }
+@media (max-width: 620px) {
+  .tiles { grid-template-columns: 1fr 1fr; }
+  .meter-row { grid-template-columns: 1fr auto; }
+  .meter-row .meter, .meter-row > span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+}

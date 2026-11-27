@@ -16,6 +16,9 @@ let startDate = today();
 
 const call = (action, body = {}) => db.callFunction('plaid', { action, ...body });
 
+// What other tabs may know: which banks are connected and any trouble.
+export const bankSummary = () => ({ items: state.available ? state.items : [] });
+
 let refreshing = null;
 export function refreshBank() {
   // Several parts of the app may ask at once; only ask the server once.

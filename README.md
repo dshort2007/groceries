@@ -5,6 +5,9 @@ transactions, a debt payoff planner, and a grocery price planner.
 
 ## What it does
 
+- **Overview**: where things stand today (cash, money left to assign, bills
+  due, debt), a list of loose ends that each link to where you fix them,
+  this month's spending against plan, and a few observations.
 - **Budget**: zero-based envelope budgeting by week (weeks start Friday).
   Income goes into "Left to assign"; you assign it to envelopes until that
   reaches $0. Unspent money stays in its envelope and carries forward.

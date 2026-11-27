@@ -3,6 +3,7 @@
 
 import { h, setRenderer } from './ui.js';
 import * as db from './db.js';
+import { renderOverview } from './views/overview.js';
 import { renderBudget } from './views/budget.js';
 import { renderTransactions } from './views/transactions.js';
 import { renderBills } from './views/bills.js';
@@ -11,6 +12,7 @@ import { renderGroceries, GROCERY_ID } from './views/groceries.js';
 import { refreshBank, syncBank, resumeBankLink } from './views/bank.js';
 
 const TABS = [
+  ['overview', 'Overview', renderOverview],
   ['budget', 'Budget', renderBudget],
   ['tx', 'Transactions', renderTransactions],
   ['bills', 'Bills', renderBills],
@@ -122,6 +124,8 @@ async function openApp() {
   }
   document.body.classList.remove('signed-out');
   open = true;
+  // Start on the overview, unless there's nothing set up to summarise yet.
+  view = db.all('envelope').length > 0 ? 'overview' : 'budget';
   if (/[?&]oauth_state_id=/.test(location.search)) view = 'tx'; // back from the bank's sign-in
   render();
   // Bank connections: finish one in progress, then fetch anything new.
@@ -136,6 +140,7 @@ async function start() {
   const user = await db.start();
   if (!db.configured) {
     open = true;
+    view = db.all('envelope').length > 0 ? 'overview' : 'budget';
     return render();
   }
   if (!user) return renderSignIn();

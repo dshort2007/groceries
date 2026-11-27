@@ -5,16 +5,16 @@ import { payoffPlan, debtStatus, today } from '../money.js';
 import { envelopeSelect } from './shared.js';
 import * as db from '../db.js';
 
-const SETTINGS_ID = '00000000-0000-4000-8000-000000000002';
+export const SETTINGS_ID = '00000000-0000-4000-8000-000000000002';
 
-function when(months) {
+export function when(months) {
   const d = new Date();
   d.setDate(1);
   d.setMonth(d.getMonth() + months);
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
-function span(months) {
+export function span(months) {
   const years = Math.floor(months / 12);
   const rest = months % 12;
   return [years && `${years} yr`, rest && `${rest} mo`].filter(Boolean).join(' ') || '0 mo';
