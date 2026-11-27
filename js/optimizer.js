@@ -41,6 +41,41 @@ export function lineCost(item, entry) {
   return { packages, price, coupon, cost, unitPrice: price / size };
 }
 
+// A store can have two prices for an item: the name brand and the store's
+// own brand. Returns whichever the shopper would actually buy: the cheaper
+// one, unless they've said this item has to be the name brand.
+export function bestLine(item, entry) {
+  const name = lineCost(item, entry);
+  const own = item.brand === 'name' ? null : lineCost(item, entry?.generic);
+  if (own && (!name || own.cost < name.cost)) return { ...own, storeBrand: true };
+  return name ? { ...name, storeBrand: false } : null;
+}
+
+// Reads a package size as printed on a product, like "12 ct", "1/2 gal"
+// or "16.9 fl oz". Returns { amount, unit } or null.
+export function parseSize(text) {
+  const m = /(\d+\s*\/\s*\d+|\d*\.?\d+)\s*(fl\.?\s*oz|oz|lbs?|ct|count|pk|pack|gal(?:lons?)?|qt|pt|ml|l|kg|g)\b/i.exec(String(text || ''));
+  if (!m) return null;
+  const amount = m[1].includes('/') ? Number(m[1].split('/')[0]) / Number(m[1].split('/')[1]) : Number(m[1]);
+  const unit = m[2].toLowerCase().replace(/[.\s]+/g, ' ').replace(/s$/, '');
+  return amount > 0 ? { amount, unit: unit === 'fl oz' ? 'fl oz' : unit.trim() } : null;
+}
+
+// How much that is in the unit the list item is measured in (a "1 lb"
+// package is 16 when the item is counted in oz). null if they don't mix.
+const TO_BASE = {
+  oz: ['weight', 1], lb: ['weight', 16], g: ['weight', 0.035274], kg: ['weight', 35.274],
+  'fl oz': ['volume', 1], gal: ['volume', 128], gallon: ['volume', 128], qt: ['volume', 32], pt: ['volume', 16], ml: ['volume', 0.033814], l: ['volume', 33.814],
+  ct: ['count', 1], count: ['count', 1], pk: ['count', 1], pack: ['count', 1],
+};
+export function sizeIn(unit, parsed) {
+  if (!parsed) return null;
+  const from = TO_BASE[parsed.unit];
+  const to = TO_BASE[unit];
+  if (!from || !to || from[0] !== to[0]) return null;
+  return Math.round(((parsed.amount * from[1]) / to[1]) * 100) / 100;
+}
+
 // Price the whole list using only the given stores: each item goes to
 // whichever of those stores is cheapest for it.
 function buildPlan(stores, items, prices, extraStopCost) {
@@ -50,7 +85,7 @@ function buildPlan(stores, items, prices, extraStopCost) {
   for (const item of items) {
     let best = null;
     for (const store of stores) {
-      const line = lineCost(item, prices[item.id]?.[store.id]);
+      const line = bestLine(item, prices[item.id]?.[store.id]);
       if (line && (!best || line.cost < best.line.cost)) best = { store, line };
     }
     if (best) byStore.get(best.store.id).lines.push({ item, ...best.line });

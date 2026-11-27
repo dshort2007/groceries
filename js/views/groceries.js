@@ -1,12 +1,20 @@
-// The grocery price planner: list, best plan and stores.
-// All of it is stored together as one record.
+// The grocery price planner: the shared list, prices at each store, the
+// best plan, a shopping checklist and the stores themselves.
+//
+// Every item and every store is saved as its own record, so two people can
+// add to the list or tick things off at the same time without overwriting
+// each other.
 
-import { optimize, lineCost, storeIsEligible } from '../optimizer.js';
-import { defaultState, normalizeState, newId } from '../storage.js';
+import { optimize, bestLine, lineCost, storeIsEligible, parseSize, sizeIn } from '../optimizer.js';
+import { defaultState, normalizeState, newId, stableId } from '../storage.js';
 import { h, money, num, rerender } from '../ui.js';
+import { today } from '../money.js';
 import * as db from '../db.js';
 
+// Where the whole planner used to be saved as one lump. Still read once,
+// to move an existing list over.
 export const GROCERY_ID = '00000000-0000-4000-8000-000000000001';
+const SETTINGS_ID = '00000000-0000-4000-8000-000000000005';
 
 const UNITS = [
   ['each', 'each'],
@@ -20,13 +28,74 @@ const UNITS = [
 let state = null;
 let view = 'list';
 const openItems = new Set(); // which items are expanded, kept across redraws
+const showOwnBrand = new Set(); // "item|store" rows showing a store-brand line
+let lookup = null; // a Kroger search in progress: { itemId, storeId, term, ... }
+let notice = ''; // result of the last "update Kroger prices"
 
-const save = () => db.put('groceries', { id: GROCERY_ID, ...state });
+// ---------- Loading and saving ----------
+
+let snapshot = new Map(); // what each record looked like when loaded
+
+function moveOldList() {
+  const old = normalizeState(db.get(GROCERY_ID));
+  const source = old || defaultState();
+  // Ids are worked out from the old ones, so if two devices do this at the
+  // same moment they produce the same records instead of two copies.
+  const id = (x) => (old ? stableId('grocery:' + x) : x);
+  source.stores.forEach((s, i) => db.put('gstore', { ...s, id: id(s.id), sort: i }));
+  source.items.forEach((item, i) => {
+    const prices = {};
+    for (const [storeId, entry] of Object.entries(source.prices[item.id] || {})) prices[id(storeId)] = entry;
+    db.put('gitem', { ...item, id: id(item.id), sort: i, prices });
+  });
+  db.put('gsettings', { id: SETTINGS_ID, ...source.settings });
+  if (old) db.remove(GROCERY_ID);
+}
+
+function load() {
+  if (db.all('gitem').length === 0 && db.all('gstore').length === 0) moveOldList();
+  const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
+  const items = db.all('gitem').sort(bySort);
+  const { id: _, ...settings } = db.get(SETTINGS_ID) || {};
+  state = {
+    items: items.map(({ prices, ...item }) => item),
+    stores: db.all('gstore').sort(bySort),
+    prices: Object.fromEntries(items.map((i) => [i.id, structuredClone(i.prices || {})])),
+    settings: { maxStores: 3, extraStopCost: 0, ...settings },
+  };
+  snapshot = new Map();
+  for (const item of state.items) snapshot.set(item.id, JSON.stringify(itemRecord(item)));
+  for (const store of state.stores) snapshot.set(store.id, JSON.stringify(store));
+  snapshot.set(SETTINGS_ID, JSON.stringify({ id: SETTINGS_ID, ...state.settings }));
+}
+
+// An item is saved together with its prices at every store.
+const itemRecord = (item) => ({ ...item, prices: state.prices[item.id] || {} });
+
+// Saves only what actually changed since it was loaded.
+function save() {
+  const kept = new Set();
+  const write = (kind, record) => {
+    kept.add(record.id);
+    const json = JSON.stringify(record);
+    if (snapshot.get(record.id) === json) return;
+    db.put(kind, record);
+    snapshot.set(record.id, json);
+  };
+  for (const item of state.items) write('gitem', itemRecord(item));
+  for (const store of state.stores) write('gstore', store);
+  write('gsettings', { id: SETTINGS_ID, ...state.settings });
+  for (const id of [...snapshot.keys()]) {
+    if (!kept.has(id)) {
+      db.remove(id);
+      snapshot.delete(id);
+    }
+  }
+}
 
 export function renderGroceries() {
-  state = normalizeState(db.get(GROCERY_ID)) || defaultState();
-  delete state.id;
-  const tabs = [['list', 'List', renderList], ['plan', 'Best plan', renderPlan], ['stores', 'Stores', renderStores]];
+  load();
+  const tabs = [['list', 'List', renderList], ['shop', 'Shop', renderShop], ['plan', 'Best plan', renderPlan], ['stores', 'Stores', renderStores]];
   return [
     h(
       'div',
@@ -39,48 +108,181 @@ export function renderGroceries() {
   ];
 }
 
+// ---------- Kroger price lookup ----------
+
+const krogerCall = (action, body) => db.callFunction('kroger', { action, ...body });
+const krogerStores = () => state.stores.filter((s) => s.enabled !== false && s.kroger?.locationId);
+
+// Remember a price so the item can show how it has moved over time.
+function logPrice(entry, kind, price) {
+  if (!(price > 0)) return;
+  const history = (entry.history ??= []);
+  const last = history.filter((p) => p.k === kind).at(-1);
+  if (last && last.p === price) return;
+  if (last && last.d === today()) last.p = price; // corrected the same day
+  else history.push({ d: today(), p: price, k: kind });
+  if (history.length > 40) history.splice(0, history.length - 40);
+}
+
+// Put a Kroger product's price onto an item.
+function applyProduct(item, store, product) {
+  const entry = ((state.prices[item.id] ??= {})[store.id] ??= {});
+  const ownBrand = product.storeBrand && item.brand !== 'name';
+  const target = ownBrand ? (entry.generic ??= {}) : entry;
+  target.price = product.price;
+  target.productId = product.productId;
+  target.label = product.name;
+  if (item.unit !== 'each') {
+    const size = sizeIn(item.unit, parseSize(product.size));
+    if (size) target.size = size;
+  }
+  entry.updated = today();
+  logPrice(entry, ownBrand ? 'g' : 'n', product.price);
+  if (ownBrand) showOwnBrand.add(`${item.id}|${store.id}`);
+}
+
+async function runLookup() {
+  const store = state.stores.find((s) => s.id === lookup.storeId);
+  lookup = { ...lookup, busy: true, error: '', products: null };
+  rerender();
+  try {
+    const reply = await krogerCall('search', { term: lookup.term, locationId: store.kroger.locationId });
+    if (!Array.isArray(reply?.products)) throw new Error('The "kroger" function gave an unexpected reply. It may still contain sample code.');
+    lookup = { ...lookup, busy: false, products: reply.products };
+  } catch (err) {
+    lookup = { ...lookup, busy: false, error: err.message };
+  }
+  rerender();
+}
+
+// Every price on the list that came from a Kroger product at this store.
+function krogerLinked(store) {
+  const linked = [];
+  for (const item of state.items) {
+    const entry = state.prices[item.id]?.[store.id];
+    for (const [kind, target] of [['n', entry], ['g', entry?.generic]]) {
+      if (target?.productId) linked.push({ entry, kind, target });
+    }
+  }
+  return linked;
+}
+
+// Fetch today's price for every item that was picked from Kroger before.
+async function refreshKroger() {
+  notice = 'Checking Kroger…';
+  rerender();
+  let checked = 0;
+  let changed = 0;
+  try {
+    for (const { id, kroger } of krogerStores()) {
+      const ids = krogerLinked(state.stores.find((s) => s.id === id)).map((l) => l.target.productId);
+      if (ids.length === 0) continue;
+      const reply = await krogerCall('prices', { locationId: kroger.locationId, productIds: ids });
+      // The screen may have been redrawn (and the list reloaded) while
+      // waiting, so look the prices up afresh before changing them, and
+      // save straight away.
+      const byId = new Map((reply?.products || []).map((p) => [p.productId, p]));
+      const store = state.stores.find((s) => s.id === id);
+      for (const { entry, kind, target } of store ? krogerLinked(store) : []) {
+        const product = byId.get(target.productId);
+        if (!product || !(product.price > 0)) continue;
+        checked++;
+        if (target.price !== product.price) changed++;
+        target.price = product.price;
+        entry.updated = today();
+        logPrice(entry, kind, product.price);
+      }
+      save();
+    }
+    notice = checked ? `Checked ${checked} Kroger price${checked === 1 ? '' : 's'}: ${changed} changed.` : 'No items are linked to a Kroger product yet. Use "Look up price" on an item first.';
+  } catch (err) {
+    notice = err.message;
+  }
+  rerender();
+}
+
+function renderLookup(item, store) {
+  const term = h('input', { type: 'text', value: lookup.term, 'aria-label': 'Search Kroger for' });
+  return h(
+    'div',
+    { class: 'lookup' },
+    h(
+      'form',
+      { class: 'add-form simple', onsubmit: (e) => { e.preventDefault(); lookup.term = term.value.trim(); runLookup(); } },
+      term,
+      h('button', { type: 'submit' }, 'Search')
+    ),
+    lookup.busy && h('p', { class: 'muted small' }, 'Searching Kroger…'),
+    lookup.error && h('p', { class: 'warn small' }, lookup.error),
+    lookup.products?.length === 0 && h('p', { class: 'muted small' }, 'Nothing found with a price at this store. Try different words.'),
+    (lookup.products || []).map((p) =>
+      h(
+        'button',
+        { class: 'product', onclick: () => { applyProduct(item, store, p); lookup = null; save(); rerender(); } },
+        h('span', {}, p.name, h('span', { class: 'muted small' }, ` · ${p.size || 'no size'}`), p.storeBrand && h('span', { class: 'badge' }, 'Store brand')),
+        h('strong', {}, money(p.price), p.onSale && h('span', { class: 'muted small' }, ` was ${money(p.regular)}`))
+      )
+    ),
+    h('button', { class: 'link', onclick: () => { lookup = null; rerender(); } }, 'Cancel')
+  );
+}
+
 // ---------- List ----------
 
 function describeNeed(item) {
   return item.unit === 'each' ? `× ${item.qty}` : `${item.qty} ${item.unit}`;
 }
 
+// What the item would cost at each store that can be shopped at.
+function linesFor(item) {
+  return state.stores
+    .filter(storeIsEligible)
+    .map((store) => ({ store, line: bestLine(item, state.prices[item.id]?.[store.id]) }))
+    .filter((x) => x.line);
+}
+
 function bestPriceText(item) {
-  let best = null;
-  for (const store of state.stores.filter(storeIsEligible)) {
-    const line = lineCost(item, state.prices[item.id]?.[store.id]);
-    if (line && (!best || line.cost < best.line.cost)) best = { store, line };
-  }
+  const best = linesFor(item).sort((a, b) => a.line.cost - b.line.cost)[0];
   return best ? `Best: ${best.store.name} ${money(best.line.cost)}` : 'No prices yet';
 }
 
-function priceHint(item, store) {
-  const entry = state.prices[item.id]?.[store.id];
-  if (!entry || !(entry.price > 0)) return '';
-  const line = lineCost(item, entry);
-  if (!line) return 'Add the package size';
-  let text = `${money(line.cost)} for ${line.packages} pkg`;
-  if (item.unit !== 'each') text += ` · ${money(line.unitPrice)}/${item.unit}`;
-  if (!storeIsEligible(store)) text += ' · needs membership';
-  return text;
+const shortDay = (date) => new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+// "Was $2.79 on Nov 3. Lowest $2.49." once a price has changed at least once.
+function historyNote(entry, kind) {
+  const past = (entry?.history || []).filter((p) => p.k === kind);
+  if (past.length < 2) return null;
+  const current = past.at(-1);
+  const before = past.at(-2);
+  const lowest = Math.min(...past.map((p) => p.p));
+  return h(
+    'div',
+    { class: 'muted small' },
+    `Was ${money(before.p)} on ${shortDay(before.d)}. `,
+    current.p <= lowest ? h('span', { class: 'badge good' }, 'Lowest yet') : `Lowest ${money(lowest)}.`
+  );
 }
 
-function renderItem(item) {
-  const summaryPrice = h('span', { class: 'muted' }, bestPriceText(item));
-  const hints = new Map();
+function renderStoreRow(item, store, bestUnit) {
+  const entry = state.prices[item.id]?.[store.id];
+  const key = `${item.id}|${store.id}`;
+  const sized = item.unit !== 'each';
+  const ownBrandAllowed = item.brand !== 'name';
+  const ownBrandOpen = ownBrandAllowed && (showOwnBrand.has(key) || entry?.generic?.price > 0);
 
-  const setPrice = (store, field, value) => {
-    const forItem = (state.prices[item.id] ??= {});
-    const entry = (forItem[store.id] ??= {});
-    entry[field] = num(value);
-    entry.updated = new Date().toISOString().slice(0, 10);
+  const set = (kind, field, value) => {
+    const e = ((state.prices[item.id] ??= {})[store.id] ??= {});
+    const target = kind === 'g' ? (e.generic ??= {}) : e;
+    target[field] = num(value);
+    e.updated = today();
+    if (field === 'price') {
+      delete target.productId; // typed by hand: no longer tied to a Kroger product
+      logPrice(e, kind, target.price);
+    }
     save();
-    // Update just this item's text so the cursor stays where it is.
-    hints.get(store.id).textContent = priceHint(item, store);
-    summaryPrice.textContent = bestPriceText(item);
+    rerender();
   };
-
-  const field = (label, store, name, placeholder) =>
+  const box = (label, kind, name, placeholder) =>
     h(
       'label',
       { class: 'field' },
@@ -91,47 +293,78 @@ function renderItem(item) {
         step: 'any',
         inputMode: 'decimal',
         placeholder,
-        value: state.prices[item.id]?.[store.id]?.[name] ?? '',
-        onchange: (e) => setPrice(store, name, e.target.value),
+        value: (kind === 'g' ? entry?.generic : entry)?.[name] ?? '',
+        data: { key: `${key}|${kind}|${name}` },
+        onchange: (e) => set(kind, name, e.target.value),
       })
     );
+  const fields = (kind) =>
+    h('div', { class: 'fields' }, box('Price $', kind, 'price', '0.00'), sized && box(`Size (${item.unit})`, kind, 'size', '0'), box('Coupon $', kind, 'coupon', '0.00'));
 
-  const rows = state.stores
-    .filter((s) => s.enabled !== false)
-    .map((store) => {
-      const hint = h('div', { class: 'hint' }, priceHint(item, store));
-      hints.set(store.id, hint);
-      return h(
-        'div',
-        { class: 'price-row' },
-        h('div', { class: 'store-name' }, store.name),
-        h(
-          'div',
-          { class: 'fields' },
-          field('Price $', store, 'price', '0.00'),
-          item.unit !== 'each' && field(`Size (${item.unit})`, store, 'size', '0'),
-          field('Coupon $', store, 'coupon', '0.00')
-        ),
-        hint
-      );
-    });
+  // What you'd pay here, and whether it's the best value by size.
+  let hint = '';
+  const line = bestLine(item, entry);
+  const anyPrice = entry?.price > 0 || entry?.generic?.price > 0;
+  if (line) {
+    hint = `${money(line.cost)} for ${line.packages} pkg`;
+    if (line.storeBrand && entry?.price > 0) hint += ' (store brand)';
+    if (sized) hint += ` · ${money(line.unitPrice)}/${item.unit}`;
+    if (!storeIsEligible(store)) hint += ' · needs membership';
+  } else if (anyPrice) hint = sized ? 'Add the package size' : '';
+
+  const looking = lookup && lookup.itemId === item.id && lookup.storeId === store.id;
+  return h(
+    'div',
+    { class: 'price-row' },
+    h(
+      'div',
+      { class: 'tx-line' },
+      h('span', { class: 'store-name' }, store.name),
+      store.kroger?.locationId && !looking &&
+        h('button', { class: 'link', onclick: () => { lookup = { itemId: item.id, storeId: store.id, term: item.name }; runLookup(); } }, 'Look up price')
+    ),
+    looking && renderLookup(item, store),
+    ownBrandOpen && h('div', { class: 'muted small brand-label' }, 'Name brand'),
+    fields('n'),
+    entry?.label && h('div', { class: 'muted small' }, entry.label),
+    historyNote(entry, 'n'),
+    ownBrandOpen && h('div', { class: 'muted small brand-label' }, "Store's own brand"),
+    ownBrandOpen && fields('g'),
+    ownBrandOpen && entry?.generic?.label && h('div', { class: 'muted small' }, entry.generic.label),
+    ownBrandOpen && historyNote(entry, 'g'),
+    ownBrandAllowed && !ownBrandOpen &&
+      h('button', { class: 'link', onclick: () => { showOwnBrand.add(key); rerender(); } }, "+ Store's own brand price"),
+    h(
+      'div',
+      { class: 'hint' },
+      hint,
+      line && sized && bestUnit === store.id && h('span', { class: 'badge good' }, `Best per ${item.unit}`)
+    )
+  );
+}
+
+function renderItem(item) {
+  // The store with the lowest price per unit: the best value regardless of
+  // how many packages this trip needs.
+  const priced = linesFor(item);
+  const bestUnit = priced.length > 1 ? priced.sort((a, b) => a.line.unitPrice - b.line.unitPrice)[0].store.id : null;
+  const update = (changes) => { Object.assign(item, changes); save(); rerender(); };
 
   return h(
     'details',
     {
       class: 'card item',
       open: openItems.has(item.id),
-      ontoggle: (e) =>
-        e.target.open ? openItems.add(item.id) : openItems.delete(item.id),
+      ontoggle: (e) => (e.target.open ? openItems.add(item.id) : openItems.delete(item.id)),
     },
     h(
       'summary',
       {},
-      h('span', { class: 'item-name' }, item.name),
+      h('span', { class: 'item-name' + (item.got ? ' got' : '') }, item.name),
       h('span', { class: 'muted' }, describeNeed(item)),
-      summaryPrice
+      h('span', { class: 'muted' }, bestPriceText(item))
     ),
-    rows,
+    state.stores.filter((s) => s.enabled !== false).map((store) => renderStoreRow(item, store, bestUnit)),
     h(
       'div',
       { class: 'row-actions' },
@@ -145,12 +378,15 @@ function renderItem(item) {
           step: 'any',
           inputMode: 'decimal',
           value: item.qty,
-          onchange: (e) => {
-            item.qty = num(e.target.value) > 0 ? num(e.target.value) : 1;
-            save();
-            rerender();
-          },
+          data: { key: `qty-${item.id}` },
+          onchange: (e) => update({ qty: num(e.target.value) > 0 ? num(e.target.value) : 1 }),
         })
+      ),
+      h(
+        'select',
+        { 'aria-label': 'Brand', class: 'brand-pick', onchange: (e) => update({ brand: e.target.value }) },
+        h('option', { value: 'any', selected: item.brand !== 'name' }, 'Any brand is fine'),
+        h('option', { value: 'name', selected: item.brand === 'name' }, 'Name brand only')
       ),
       h(
         'button',
@@ -187,7 +423,7 @@ function renderList() {
         e.preventDefault();
         const text = name.value.trim();
         if (!text) return;
-        const item = { id: newId(), name: text, qty: num(qty.value) > 0 ? num(qty.value) : 1, unit: unit.value };
+        const item = { id: newId(), name: text, qty: num(qty.value) > 0 ? num(qty.value) : 1, unit: unit.value, sort: Date.now() };
         state.items.push(item);
         openItems.add(item.id);
         save();
@@ -206,11 +442,72 @@ function renderList() {
     { class: 'muted small' },
     'Use "each" for things you buy by the package. For things that come in different sizes at different stores, pick a unit and say how much you need (24 count eggs, 32 oz cheese). The app works out how many packages that takes at each store.'
   );
+  const kroger =
+    krogerStores().length > 0 &&
+    h('div', { class: 'budget-tools' }, h('button', { class: 'link', onclick: refreshKroger }, 'Update Kroger prices'), notice && h('span', { class: 'muted small' }, notice));
 
   if (state.items.length === 0) {
     return [form, help, h('p', { class: 'empty' }, 'Your list is empty. Add your first item above.')];
   }
-  return [form, help, ...state.items.map(renderItem)];
+  return [form, help, kroger, ...state.items.map(renderItem)];
+}
+
+// ---------- Shop ----------
+//
+// The best plan as a checklist to use in the store. Ticks are saved on each
+// item, so a second shopper sees them a few seconds later.
+
+function renderShop() {
+  if (state.items.length === 0) return [h('p', { class: 'empty' }, 'Add items on the List tab first.')];
+  const { best } = optimize(state);
+  const tick = (item) => h('input', { type: 'checkbox', checked: !!item.got, 'aria-label': `Got ${item.name}`, onchange: (e) => { item.got = e.target.checked; save(); rerender(); } });
+  const row = (item, detail, cost) =>
+    h(
+      'label',
+      { class: 'shop-row' + (item.got ? ' got' : '') },
+      tick(item),
+      h('span', {}, h('span', { class: 'shop-name' }, item.name), h('span', { class: 'muted small' }, ` ${detail}`)),
+      cost !== null && h('span', {}, money(cost))
+    );
+
+  const sections = (best?.stores || []).map((s) =>
+    h(
+      'div',
+      { class: 'card' },
+      h('div', { class: 'list-head' }, h('h2', {}, s.store.name), h('span', { class: 'muted' }, `${s.lines.filter((l) => !l.item.got).length} to get · ${money(s.subtotal)}`)),
+      s.lines.map((l) => row(l.item, `${l.packages} pkg${l.storeBrand ? ' · store brand' : ''}${l.coupon ? ' · coupon' : ''}`, l.cost))
+    )
+  );
+  const unpriced = best ? best.missing : state.items;
+  const done = state.items.filter((i) => i.got);
+
+  return [
+    ...sections,
+    unpriced.length > 0 &&
+      h('div', { class: 'card' }, h('div', { class: 'list-head' }, h('h2', {}, 'No price yet'), h('span', { class: 'muted' }, 'Get these anywhere')), unpriced.map((item) => row(item, describeNeed(item), null))),
+    done.length > 0 &&
+      h(
+        'div',
+        { class: 'button-row' },
+        h(
+          'button',
+          {
+            class: 'primary',
+            onclick: () => {
+              // Prices are kept with the item, so they'd be lost on removal.
+              // Unticking keeps the item and its prices for next time.
+              if (!confirm(`Take ${done.length} ticked item${done.length === 1 ? '' : 's'} off the list? Their prices will be forgotten. Choose Cancel and use "Untick all" to keep them for next time.`)) return;
+              state.items = state.items.filter((i) => !i.got);
+              for (const i of done) delete state.prices[i.id];
+              save();
+              rerender();
+            },
+          },
+          `Remove ${done.length} ticked`
+        ),
+        h('button', { onclick: () => { for (const i of done) i.got = false; save(); rerender(); } }, 'Untick all')
+      ),
+  ];
 }
 
 // ---------- Best plan ----------
@@ -239,7 +536,7 @@ function renderPlanCard(plan, result) {
               h(
                 'span',
                 { class: 'muted small' },
-                ` ${l.packages} × ${money(l.price)}` + (l.coupon ? `, coupon −${money(l.coupon)}` : '')
+                ` ${l.packages} × ${money(l.price)}` + (l.coupon ? `, coupon −${money(l.coupon)}` : '') + (l.storeBrand ? ', store brand' : '')
               )
             ),
             h('span', {}, money(l.cost))
@@ -368,6 +665,56 @@ function renderPlan() {
 
 // ---------- Stores ----------
 
+// Linking a store to a Kroger location lets items look their prices up.
+let finding = null; // { storeId, busy, error, locations }
+
+function renderKrogerLink(store) {
+  if (!db.ready) return null; // needs the server
+  if (store.kroger?.locationId) {
+    return h(
+      'div',
+      { class: 'tx-line' },
+      h('span', { class: 'small' }, 'Prices looked up at ', h('strong', {}, store.kroger.name), h('span', { class: 'muted' }, store.kroger.address ? `, ${store.kroger.address}` : '')),
+      h('button', { class: 'link', onclick: () => { delete store.kroger; save(); rerender(); } }, 'Unlink')
+    );
+  }
+  const mine = finding?.storeId === store.id ? finding : null;
+  const zip = h('input', { type: 'text', inputMode: 'numeric', placeholder: 'Zip code', maxLength: 5 });
+  return h(
+    'details',
+    { class: 'kroger-link', open: !!mine || undefined },
+    h('summary', {}, 'Look up prices from Kroger'),
+    h('p', { class: 'muted small' }, 'For Kroger and the stores it owns (Ralphs, Fred Meyer, Harris Teeter and others). Find your store and items here can fetch their price from it.'),
+    h(
+      'form',
+      {
+        class: 'add-form simple',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          finding = { storeId: store.id, busy: true };
+          rerender();
+          try {
+            const reply = await db.callFunction('kroger', { action: 'locations', zip: zip.value.trim() });
+            if (!Array.isArray(reply?.locations)) throw new Error('The "kroger" function gave an unexpected reply. It may still contain sample code.');
+            finding = { storeId: store.id, locations: reply.locations };
+          } catch (err) {
+            finding = { storeId: store.id, error: err.message };
+          }
+          rerender();
+        },
+      },
+      zip,
+      h('button', { type: 'submit' }, 'Find stores')
+    ),
+    mine?.busy && h('p', { class: 'muted small' }, 'Looking…'),
+    mine?.error && h('p', { class: 'warn small' }, mine.error),
+    mine?.locations?.length === 0 && h('p', { class: 'muted small' }, 'No stores found near that zip code.'),
+    (mine?.locations || []).map((l) =>
+      h('button', { class: 'product', onclick: () => { store.kroger = l; finding = null; save(); rerender(); } }, h('span', {}, l.name, h('span', { class: 'muted small' }, ` · ${l.address}`)), h('strong', {}, 'Use this'))
+    )
+  );
+}
+
 function renderStore(store) {
   const update = (field, value, redraw) => {
     store[field] = value;
@@ -407,6 +754,7 @@ function renderStore(store) {
       h('input', { type: 'number', min: '0', step: 'any', inputMode: 'decimal', value: store.fee || 0, onchange: (e) => update('fee', num(e.target.value) ?? 0, false) })
     ),
     hasMembership && check(`${store.membershipName} waives that fee`, 'feeWaivedForMembers'),
+    renderKrogerLink(store),
     h(
       'div',
       { class: 'row-actions' },
@@ -439,7 +787,7 @@ function renderStores() {
         e.preventDefault();
         const text = name.value.trim();
         if (!text) return;
-        state.stores.push({ id: newId(), name: text, membershipName: '', fee: 0 });
+        state.stores.push({ id: newId(), name: text, membershipName: '', fee: 0, sort: Date.now() });
         save();
         rerender();
       },

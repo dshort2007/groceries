@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -219,4 +219,19 @@ test('a job splits by percentage and always adds back up', () => {
     const s = splitJob(total, { business: 33.3, family: 33.3 });
     assert.equal(Math.round((s.business + s.family + s.personal) * 100), Math.round(total * 100));
   }
+});
+
+test('bills can repeat every week or every two weeks', () => {
+  const loan = { nextDue: '2026-12-04', days: 14, amount: 249.52, envelopeId: 'loan' };
+  assert.equal(dueAfter(loan), '2026-12-18');
+  assert.equal(dueAfter({ nextDue: '2026-12-25', days: 14 }), '2027-01-08');
+  assert.equal(billMonthly(loan), 540.63); // 26 payments a year
+  assert.equal(billMonthly({ amount: 50, days: 7 }), 216.67); // 52 a year
+  assert.equal(billMonthly({ amount: 72, every: 3 }), 24);
+  assert.equal(monthlyTargets([{ id: 'loan' }], [loan]).get('loan').amount, 540.63);
+
+  // A payment 8 days from the due date belongs to the next fortnight.
+  const txs = [{ id: 't1', date: '2026-12-12', amount: -249.52, envelopeId: 'loan' }, { id: 't2', date: '2026-12-05', amount: -249.52, envelopeId: 'loan' }];
+  assert.equal(findPayment(loan, txs, false).tx.id, 't2');
+  assert.equal(findPayment(loan, [txs[0]], false), null);
 });

@@ -143,10 +143,20 @@ export function splitJob(total, percents) {
 
 // ---------- Bills ----------
 
-// A bill remembers when it's next due and how often it repeats (every 1, 3,
-// 6 or 12 months). Paying it moves the due date forward.
+// A bill remembers when it's next due and how often it repeats: every 1,
+// 3, 6 or 12 months, or every so many days (7 = weekly, 14 = every two
+// weeks). Paying it moves the due date forward.
 export function dueAfter(bill) {
+  if (Number(bill.days) > 0) return addDays(bill.nextDue, Number(bill.days));
   return addMonths(bill.nextDue, Number(bill.every) || 1, Number(bill.day) || Number(bill.nextDue.slice(8)));
+}
+
+// What a bill comes to per month. A bill every two weeks is paid 26 times
+// a year, so it costs a little more than two payments a month.
+export function billMonthly(bill) {
+  const amount = Number(bill.amount) || 0;
+  if (Number(bill.days) > 0) return round2((amount * (364 / Number(bill.days))) / 12); // 364 days = 52 weeks
+  return round2(amount / (Number(bill.every) || 1));
 }
 
 // For a bill whose amount changes (utilities), the best guess at the next
@@ -167,7 +177,10 @@ export function findPayment(bill, transactions, sharesEnvelope) {
   for (const t of transactions) {
     if (t.id === bill.lastTxId || t.date <= (bill.lastPaid || '')) continue;
     const gap = Math.abs(Date.parse(t.date) - Date.parse(bill.nextDue)) / 86400000;
-    if (gap > 10) continue;
+    // Ten days either side, or less for a bill that comes round more often
+    // than that, so one period's payment isn't taken for the next.
+    const reach = Number(bill.days) > 0 ? Math.min(10, Math.floor(Number(bill.days) / 2) - 1) : 10;
+    if (gap > reach) continue;
     const paid = -parts(t).filter((p) => p.envelopeId === bill.envelopeId).reduce((sum, p) => sum + p.amount, 0);
     if (!(paid > 0)) continue;
     const expected = Number(bill.amount) || 0;
@@ -193,7 +206,7 @@ export function monthlyTargets(envelopes, bills) {
   for (const e of envelopes) {
     const own = byEnvelope.get(e.id) || [];
     const amount = own.length
-      ? round2(own.reduce((sum, b) => sum + Number(b.amount) / (Number(b.every) || 1), 0))
+      ? round2(own.reduce((sum, b) => sum + billMonthly(b), 0))
       : Number(e.plan) || 0;
     targets.set(e.id, { amount, bills: own });
   }

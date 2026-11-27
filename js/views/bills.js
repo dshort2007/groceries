@@ -2,12 +2,15 @@
 // sitting in its envelope yet.
 
 import { h, money, num, numberField, rerender } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment } from '../money.js';
+import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment, billMonthly } from '../money.js';
 import { envelopeSelect, accountSelect } from './shared.js';
 import * as db from '../db.js';
 
 let editingId = null;
-const REPEATS = [[1, 'Every month'], [3, 'Every 3 months'], [6, 'Every 6 months'], [12, 'Every year']];
+// How often a bill comes round. "d14" is every 14 days; "m3" every 3 months.
+const REPEATS = [['d7', 'Every week'], ['d14', 'Every 2 weeks'], ['m1', 'Every month'], ['m3', 'Every 3 months'], ['m6', 'Every 6 months'], ['m12', 'Every year']];
+const repeatOf = (bill) => (Number(bill.days) > 0 ? `d${bill.days}` : `m${bill.every || 1}`);
+const repeatChange = (code) => (code[0] === 'd' ? { days: Number(code.slice(1)) } : { days: 0, every: Number(code.slice(1)) });
 
 const longDate = (date) =>
   new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
@@ -71,7 +74,7 @@ function renderBill(bill, available, payment) {
         'div',
         { class: 'fields wrap' },
         h('label', { class: 'field' }, h('span', {}, 'Next due'), h('input', { type: 'date', value: bill.nextDue, onchange: (e) => e.target.value && update({ nextDue: e.target.value, day: Number(e.target.value.slice(8)) }) })),
-        h('label', { class: 'field' }, h('span', {}, 'Repeats'), h('select', { onchange: (e) => update({ every: Number(e.target.value) }) }, REPEATS.map(([n, label]) => h('option', { value: n, selected: n === (bill.every || 1) }, label))))
+        h('label', { class: 'field' }, h('span', {}, 'Repeats'), h('select', { onchange: (e) => update(repeatChange(e.target.value)) }, REPEATS.map(([code, label]) => h('option', { value: code, selected: code === repeatOf(bill) }, label))))
       ),
       h(
         'div',
@@ -107,7 +110,7 @@ function renderBill(bill, available, payment) {
     bill.payTo && `To ${bill.payTo}`,
     longDate(bill.nextDue),
     db.get(bill.accountId)?.name,
-    (bill.every || 1) > 1 && REPEATS.find(([n]) => n === bill.every)?.[1].toLowerCase(),
+    repeatOf(bill) !== 'm1' && REPEATS.find(([code]) => code === repeatOf(bill))?.[1].toLowerCase(),
   ].filter(Boolean);
   const usual = bill.variable && billEstimate(bill.history);
 
@@ -130,6 +133,7 @@ function renderBill(bill, available, payment) {
         : h('strong', {}, amount > 0 ? money(amount) : h('span', { class: 'muted' }, 'No amount'))
     ),
     usual && h('div', { class: 'muted small' }, `Recent average ${money(usual)}.`),
+    Number(bill.days) > 0 && amount > 0 && h('div', { class: 'muted small' }, `About ${money(billMonthly(bill))} a month.`),
     short && h('div', { class: 'warn small' }, `Its envelope only has ${money(available)}.`),
     payment &&
       h(

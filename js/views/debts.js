@@ -2,7 +2,7 @@
 // and whether this month's payment is lined up.
 
 import { h, money, num, numberField, rerender, goTo } from '../ui.js';
-import { payoffPlan, debtStatus, today } from '../money.js';
+import { payoffPlan, debtStatus, billMonthly, today } from '../money.js';
 import { envelopeSelect } from './shared.js';
 import * as db from '../db.js';
 
@@ -25,6 +25,15 @@ export function span(months) {
 
 const dayOf = (date) =>
   new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+// What actually gets paid on a debt each month: its minimum, or more if the
+// bill linked to it comes to more (a loan paid every two weeks, say). The
+// payoff dates are worked out from this.
+export function planPayment(debt, bills) {
+  const min = Number(debt.minPayment) || 0;
+  const bill = debt.envelopeId ? bills.find((b) => b.envelopeId === debt.envelopeId) : null;
+  return bill ? Math.max(min, billMonthly(bill)) : min;
+}
 
 // The plan the family has chosen to follow.
 export const debtStrategy = () => (db.get(SETTINGS_ID)?.debtStrategy === 'avalanche' ? 'avalanche' : 'snowball');
@@ -80,18 +89,27 @@ function renderDebt(d, info) {
   else if (!bill) payment = h('div', { class: 'muted small' }, 'No bill is paid from its envelope, so there is no due date to show.');
   else {
     const amount = Number(bill.amount) || 0;
-    const low = amount < min - 0.004;
+    // Compare like with like: what the bill comes to per month against the
+    // monthly minimum. A loan paid every two weeks is half the minimum each
+    // time, and that's fine.
+    const monthly = billMonthly(bill);
+    const often = Number(bill.days) > 0;
+    const low = monthly < min - 0.004;
+    // The per-payment amount that would exactly meet the minimum.
+    const perPayment = often ? Math.ceil(((min * 12) / (364 / Number(bill.days))) * 100) / 100 : min * (Number(bill.every) || 1);
     payment = h(
       'div',
       { class: 'debt-bill' },
       h('button', { class: 'link plain', onclick: () => goTo('bills') }, `Next payment ${money(amount)} due ${dayOf(bill.nextDue)}`),
+      (often || (bill.every || 1) > 1) && h('span', { class: 'muted small' }, `(${money(monthly)} a month)`),
       bill.lastPaid && bill.lastPaid.slice(0, 7) === today().slice(0, 7) && h('span', { class: 'badge good' }, 'Paid this month'),
+      monthly > min + 1 && h('div', { class: 'small', style: 'flex: 1 1 100%' }, `That's ${money(monthly - min)} a month more than the minimum, and the dates here count it.`),
       low &&
         h(
           'div',
           { class: 'found warn-box' },
-          h('span', {}, `That's below the ${money(min)} minimum.`),
-          h('button', { onclick: () => { db.put('bill', { ...bill, amount: min }); rerender(); } }, `Set the bill to ${money(min)}`)
+          h('span', {}, `That's below the ${money(min)} monthly minimum.`),
+          h('button', { onclick: () => { db.put('bill', { ...bill, amount: perPayment }); rerender(); } }, `Set the bill to ${money(perPayment)}`)
         )
     );
   }
@@ -127,7 +145,8 @@ export function renderDebts() {
   const bills = db.all('bill');
   const status = new Map(debts.map((d) => [d.id, debtStatus(d, txs)]));
   const current = debts.map((d) => ({ ...d, balance: status.get(d.id).balance }));
-  const active = current.filter((d) => d.balance > 0);
+  // For the payoff math, use what's really being paid on each.
+  const active = current.filter((d) => d.balance > 0).map((d) => ({ ...d, minPayment: planPayment(d, bills) }));
 
   const name = h('input', { type: 'text', placeholder: 'Add a debt, e.g. Car loan', required: true });
   const addForm = h(
@@ -213,7 +232,7 @@ export function renderDebts() {
   const list = h(
     'div',
     { class: 'card' },
-    h('div', { class: 'list-head' }, h('h2', {}, 'Debts'), active.length > 0 && h('span', { class: 'muted' }, `${money(minimums)}/mo minimums`)),
+    h('div', { class: 'list-head' }, h('h2', {}, 'Debts'), active.length > 0 && h('span', { class: 'muted' }, `${money(minimums)}/mo in payments`)),
     active.length > 1 && h('p', { class: 'muted small' }, 'In the order your plan pays them off. Pay the minimum on each, and put everything extra on the one marked Focus.'),
     missingRate.length > 0 && h('p', { class: 'warn small' }, `No interest rate entered for ${missingRate.map((d) => d.name).join(', ')}. They're counted as 0%, so the dates here are too optimistic.`),
     ordered.map((d) =>

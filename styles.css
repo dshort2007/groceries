@@ -549,3 +549,22 @@ button.link.plain { padding: 0; text-align: left; color: inherit; text-decoratio
 .field.inline.wide input { width: 110px; }
 .left .meter { margin: 8px 0 2px; }
 @media (max-width: 420px) { .choices { grid-template-columns: 1fr; } }
+
+/* ---------- Groceries: brands, lookup, shopping ---------- */
+.price-row .tx-line { margin-bottom: 6px; }
+.price-row .store-name { margin: 0; }
+.brand-label { margin: 8px 0 2px; }
+.brand-pick { flex: 1 1 100%; order: -1; }
+.row-actions { flex-wrap: wrap; }
+.lookup { display: grid; gap: 6px; margin-bottom: 10px; padding: 10px; border-radius: 12px; background: var(--field); }
+.lookup .add-form.simple, .kroger-link .add-form.simple { margin-top: 0; }
+.lookup input { background: var(--card); }
+.product { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 8px 10px; }
+.product strong { white-space: nowrap; }
+.kroger-link > summary { cursor: pointer; font-size: 0.9rem; color: var(--accent-strong); }
+.kroger-link { display: grid; gap: 6px; }
+.shop-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.shop-row > span:nth-child(2) { flex: 1; min-width: 0; }
+.shop-row input { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
+.shop-row.got .shop-name, .item-name.got { text-decoration: line-through; color: var(--muted); }
+.subtabs button { white-space: nowrap; }

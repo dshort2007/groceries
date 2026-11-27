@@ -118,7 +118,7 @@ async function openApp() {
     if (err?.code) return showMessage("Couldn't load", err.message, h('button', { class: 'primary', onclick: openApp }, 'Try again'));
   }
   await db.sync();
-  if (!db.get(GROCERY_ID)) {
+  if (!db.get(GROCERY_ID) && db.all('gstore').length === 0) {
     // Carry over the list from the first version of the app, once.
     const old = await db.oldGroceryList().catch(() => null);
     if (old) db.put('groceries', { ...old, id: GROCERY_ID });

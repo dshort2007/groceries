@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lineCost, optimize, storeFee } from '../js/optimizer.js';
+import { lineCost, bestLine, parseSize, sizeIn, optimize, storeFee } from '../js/optimizer.js';
 
 const aldi = { id: 'aldi', name: 'Aldi' };
 const kroger = { id: 'kroger', name: 'Kroger' };
@@ -99,4 +99,39 @@ test('covering more of the list beats a lower total', () => {
   const { best } = optimize(state);
   assert.equal(best.stores[0].store.id, 'aldi');
   assert.equal(best.missing.length, 0);
+});
+
+test('the store brand wins when it is cheaper, unless the name brand is required', () => {
+  const ketchup = { id: 'k', qty: 1, unit: 'each' };
+  const entry = { price: 3.49, generic: { price: 1.99 } };
+  assert.deepEqual(bestLine(ketchup, entry), { ...lineCost(ketchup, { price: 1.99 }), storeBrand: true });
+  assert.equal(bestLine({ ...ketchup, brand: 'name' }, entry).cost, 3.49);
+  assert.equal(bestLine({ ...ketchup, brand: 'name' }, { generic: { price: 1.99 } }), null);
+  assert.equal(bestLine(ketchup, { generic: { price: 1.99 } }).storeBrand, true);
+  assert.equal(bestLine(ketchup, { price: 1.5, generic: { price: 1.99 } }).storeBrand, false);
+
+  // It changes which store the plan picks.
+  const state = {
+    items: [ketchup],
+    stores: [{ id: 'a' }, { id: 'b' }],
+    prices: { k: { a: { price: 3.49, generic: { price: 1.99 } }, b: { price: 2.5 } } },
+    settings: { maxStores: 1 },
+  };
+  assert.equal(optimize(state).best.stores[0].store.id, 'a');
+  state.items = [{ ...ketchup, brand: 'name' }];
+  assert.equal(optimize(state).best.stores[0].store.id, 'b');
+});
+
+test('reads package sizes and converts them to the unit on the list', () => {
+  assert.deepEqual(parseSize('12 ct'), { amount: 12, unit: 'ct' });
+  assert.deepEqual(parseSize('1/2 gal'), { amount: 0.5, unit: 'gal' });
+  assert.deepEqual(parseSize('16.9 fl oz'), { amount: 16.9, unit: 'fl oz' });
+  assert.deepEqual(parseSize('2 lbs'), { amount: 2, unit: 'lb' });
+  assert.equal(parseSize('each'), null);
+  assert.equal(sizeIn('oz', parseSize('1 lb')), 16);
+  assert.equal(sizeIn('fl oz', parseSize('1/2 gal')), 64);
+  assert.equal(sizeIn('gal', parseSize('64 fl oz')), 0.5);
+  assert.equal(sizeIn('ct', parseSize('18 ct')), 18);
+  assert.equal(sizeIn('oz', parseSize('12 ct')), null); // count can't become weight
+  assert.equal(sizeIn('oz', parseSize('500 g')), 17.64);
 });

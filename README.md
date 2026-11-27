@@ -28,7 +28,11 @@ transactions, a debt payoff planner, and a grocery price planner.
   (avalanche), and the debts listed in the order that plan pays them off.
   Each shows its next bill, flags a bill below the minimum, and comes down
   as payments are recorded from its envelope.
-- **More > Groceries**: compare prices across stores and find the cheapest plan.
+- **More > Groceries**: a shared grocery list with prices at each store.
+  Compares what you'd actually pay (and the price per unit), handles name
+  brand versus store brand, remembers how prices have moved, finds the
+  cheapest plan across stores, and turns it into a checklist for shopping.
+  Kroger-family stores can look prices up automatically.
 - **More > Side business**: log each job and see how it divides between the
   business, family savings and personal pay, by percentages you set.
 
@@ -66,6 +70,17 @@ table that no browser can read.
    in *and* on the family list).
 
 Then use **Transactions > Bank connections** in the app.
+
+## Kroger prices (optional)
+
+1. Create an app at developer.kroger.com with the **Product** API, and copy
+   its client ID and client secret.
+2. **Supabase > Edge Functions > Secrets**: add `KROGER_CLIENT_ID` and
+   `KROGER_CLIENT_SECRET`.
+3. **Supabase > Edge Functions**: create a function named `kroger`, paste in
+   `supabase/functions/kroger/index.ts`, turn off "Verify JWT", and deploy.
+4. In the app: **More > Groceries > Stores**, open your Kroger store, and use
+   "Look up prices from Kroger" to pick the location.
 
 ## Privacy
 

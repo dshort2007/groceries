@@ -3,9 +3,9 @@
 // tabs show; nothing is stored.
 
 import { h, icon, money, goTo } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets } from '../money.js';
+import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly } from '../money.js';
 import { bankSummary } from './bank.js';
-import { when, span, SETTINGS_ID, debtStrategy } from './debts.js';
+import { when, span, SETTINGS_ID, debtStrategy, planPayment } from './debts.js';
 import * as db from '../db.js';
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -55,7 +55,7 @@ function gather() {
     .filter((x) => x.envelope && x.have < x.need - 0.004);
 
   const debts = db.all('debt').map((d) => ({ ...d, ...debtStatus(d, txs), statement: Number(d.balance) || 0 }));
-  const owing = debts.filter((d) => d.balance > 0);
+  const owing = debts.filter((d) => d.balance > 0).map((d) => ({ ...d, minPayment: planPayment(d, bills) }));
   const extra = Number(db.get(SETTINGS_ID)?.debtExtra) || 0;
 
   // This month's spending per group, net of refunds.
@@ -143,7 +143,7 @@ function suggestions(d) {
 
   const subscriptions = d.bills.filter((b) => (db.get(b.envelopeId)?.group || '') === 'Subscriptions');
   if (subscriptions.length > 1) {
-    const monthly = d.sum(subscriptions, (b) => (Number(b.amount) || 0) / (Number(b.every) || 1));
+    const monthly = d.sum(subscriptions, (b) => billMonthly(b));
     out.push(`Your ${subscriptions.length} subscriptions add up to ${money(monthly)} a month, or ${money(monthly * 12)} a year.`);
   }
 
