@@ -34,7 +34,15 @@ function render() {
   }
   // Put the cursor back in the box it was in before the redraw.
   const key = document.activeElement?.dataset?.key;
-  main.replaceChildren(...TABS.find(([id]) => id === view)[2]().filter(Boolean));
+  let content;
+  try {
+    content = TABS.find(([id]) => id === view)[2]().filter(Boolean);
+  } catch (err) {
+    // A bug in one tab should say so, not leave the old tab on screen.
+    console.error(err);
+    content = [h('div', { class: 'card' }, h('h2', {}, "This page couldn't be shown"), h('p', { class: 'warn' }, String(err?.message || err)), h('p', { class: 'muted small' }, 'Your data is safe. Send this message to whoever looks after the app.'))];
+  }
+  main.replaceChildren(...content);
   if (key) main.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
 }
 

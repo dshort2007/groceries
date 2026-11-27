@@ -25,7 +25,13 @@ export function refreshBank() {
 
 async function loadStatus() {
   try {
-    state.items = (await call('status')).items;
+    const reply = await call('status');
+    // Anything else means the function on Supabase isn't this app's code
+    // (for example, the sample it was created with).
+    if (!Array.isArray(reply?.items)) {
+      throw new Error(`The "plaid" function gave an unexpected reply: ${JSON.stringify(reply).slice(0, 120)}. It may still contain the sample code instead of the code from supabase/functions/plaid/index.ts.`);
+    }
+    state.items = reply.items;
     state.available = true;
   } catch (err) {
     state.available = false;
@@ -52,7 +58,7 @@ export async function syncBank(force) {
   rerenderWhenIdle();
   try {
     const result = await call('sync', { force });
-    state.items = result.items;
+    if (Array.isArray(result?.items)) state.items = result.items;
     const bits = [
       result.added && `${result.added} new`,
       result.matched && `${result.matched} matched to ones you'd entered`,
