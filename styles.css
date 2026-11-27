@@ -87,7 +87,7 @@ button.primary {
 
 button.danger { color: var(--danger); }
 
-input[type="text"], input[type="number"], select {
+input[type="text"], input[type="number"], input[type="email"], input[type="password"], select {
   width: 100%;
   min-width: 0;
   padding: 8px 10px;
