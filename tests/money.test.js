@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -182,4 +182,28 @@ test("an envelope's monthly target comes from its bills when it has any", () => 
   assert.equal(t.get('subs').amount, 19.99);
   assert.equal(t.get('subs').bills.length, 2);
   assert.deepEqual(t.get('groc'), { amount: 440, bills: [] });
+});
+
+test('a changing bill is estimated from the last three payments', () => {
+  assert.equal(billEstimate([]), null);
+  assert.equal(billEstimate([{ amount: 300 }]), 300);
+  assert.equal(billEstimate([{ amount: 100 }, { amount: 300 }, { amount: 310 }, { amount: 320.5 }]), 310.17);
+});
+
+test('spots the transaction that paid a bill', () => {
+  const utilities = { id: 'b1', envelopeId: 'util', nextDue: '2026-12-01', amount: 300, variable: true, lastPaid: '2026-11-01' };
+  const txs = [
+    { id: 't0', date: '2026-11-01', amount: -290, envelopeId: 'util' }, // last month, already counted
+    { id: 't1', date: '2026-12-03', amount: -318.42, envelopeId: 'util' },
+    { id: 't2', date: '2026-12-20', amount: -50, envelopeId: 'util' }, // too far from the due date
+    { id: 't3', date: '2026-12-02', amount: -40, envelopeId: 'groc' },
+    { id: 't4', date: '2026-12-02', amount: 25, envelopeId: 'util' }, // a refund, not a payment
+  ];
+  assert.deepEqual(findPayment(utilities, txs, false), { tx: txs[1], amount: 318.42, gap: 2 });
+  // A fixed bill, or one sharing its envelope, only matches a similar amount.
+  assert.equal(findPayment({ ...utilities, variable: false }, txs, false), null);
+  assert.equal(findPayment(utilities, txs, true), null);
+  assert.equal(findPayment({ ...utilities, amount: 320 }, txs, true).tx.id, 't1');
+  assert.equal(findPayment({ ...utilities, lastTxId: 't1' }, txs, false), null);
+  assert.equal(findPayment({ ...utilities, envelopeId: '' }, txs, false), null);
 });

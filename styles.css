@@ -483,3 +483,7 @@ footer { padding-top: 8px; }
 .badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; background: var(--warn-soft); color: var(--warn); vertical-align: 1px; }
 
 input:disabled { opacity: 0.7; cursor: not-allowed; }
+
+.bill-amount { flex: none; width: 110px; text-align: right; }
+.bill-amount input { text-align: right; }
+.found { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; background: var(--accent-soft); border-radius: 11px; padding: 8px 10px; }

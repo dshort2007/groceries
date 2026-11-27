@@ -134,6 +134,35 @@ export function dueAfter(bill) {
   return addMonths(bill.nextDue, Number(bill.every) || 1, Number(bill.day) || Number(bill.nextDue.slice(8)));
 }
 
+// For a bill whose amount changes (utilities), the best guess at the next
+// one: the average of the last three paid.
+export function billEstimate(history) {
+  const recent = (history || []).slice(-3);
+  if (recent.length === 0) return null;
+  return round2(recent.reduce((sum, h) => sum + Number(h.amount), 0) / recent.length);
+}
+
+// Looks for a transaction that is probably this bill being paid: money out
+// of the bill's envelope, within ten days of the due date, and not one
+// already counted. If other bills share the envelope, the amount has to
+// match too, so one bill's payment isn't mistaken for another's.
+export function findPayment(bill, transactions, sharesEnvelope) {
+  if (!bill.envelopeId) return null;
+  let best = null;
+  for (const t of transactions) {
+    if (t.id === bill.lastTxId || t.date <= (bill.lastPaid || '')) continue;
+    const gap = Math.abs(Date.parse(t.date) - Date.parse(bill.nextDue)) / 86400000;
+    if (gap > 10) continue;
+    const paid = -parts(t).filter((p) => p.envelopeId === bill.envelopeId).reduce((sum, p) => sum + p.amount, 0);
+    if (!(paid > 0)) continue;
+    const expected = Number(bill.amount) || 0;
+    const close = expected > 0 && Math.abs(paid - expected) <= Math.max(1, expected * 0.05);
+    if ((sharesEnvelope || !bill.variable) && !close) continue;
+    if (!best || gap < best.gap) best = { tx: t, amount: round2(paid), gap };
+  }
+  return best;
+}
+
 // What an envelope needs each month. If bills are paid from it, they decide:
 // their amounts, spread over how often each comes around (a $72 bill every
 // 3 months is $24 a month). Otherwise it's the target typed on the envelope.

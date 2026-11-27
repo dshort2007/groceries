@@ -2,7 +2,7 @@
 // sitting in its envelope yet.
 
 import { h, money, num, numberField, rerender } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, dueAfter } from '../money.js';
+import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment } from '../money.js';
 import { envelopeSelect, accountSelect } from './shared.js';
 import * as db from '../db.js';
 
@@ -12,23 +12,48 @@ const REPEATS = [[1, 'Every month'], [3, 'Every 3 months'], [6, 'Every 6 months'
 const longDate = (date) =>
   new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 
+// Moves a bill on to its next due date. For a bill whose amount changes,
+// remember what was paid and use the recent average as the next estimate.
+function advance(bill, paid, date, extra = {}) {
+  const next = { ...bill, nextDue: dueAfter(bill), lastPaid: date, ...extra };
+  if (bill.variable && paid > 0) {
+    next.history = [...(bill.history || []), { date, amount: paid }].slice(-12);
+    next.amount = billEstimate(next.history);
+  }
+  db.put('bill', next);
+}
+
 function pay(bill) {
   const amount = Number(bill.amount) || 0;
   if (bill.record !== false && amount > 0) {
     db.put('tx', {
       date: today(),
-      payee: bill.name,
+      payee: bill.payTo ? `${bill.name} - ${bill.payTo}` : bill.name,
       amount: -amount,
       envelopeId: bill.envelopeId || '',
       accountId: bill.accountId || '',
       created: Date.now(),
     });
   }
-  db.put('bill', { ...bill, nextDue: dueAfter(bill), lastPaid: today() });
+  advance(bill, amount, today());
   rerender();
 }
 
-function renderBill(bill, available) {
+// Bills from the setup file were named "Rent (FirstKey Homes)". Move the
+// part in brackets into the new "Paid to" field, once.
+function tidyNames(bills) {
+  let changed = false;
+  for (const b of bills) {
+    const m = b.payTo === undefined && /^(.+?)\s*\(([^()]+)\)$/.exec(b.name || '');
+    if (m) {
+      db.put('bill', { ...b, name: m[1], payTo: m[2] });
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function renderBill(bill, available, payment) {
   const update = (changes) => { db.put('bill', { ...bill, ...changes }); rerender(); };
 
   if (editingId === bill.id) {
@@ -39,7 +64,8 @@ function renderBill(bill, available) {
         'div',
         { class: 'fields wrap' },
         h('label', { class: 'field' }, h('span', {}, 'Bill'), h('input', { type: 'text', value: bill.name, onchange: (e) => update({ name: e.target.value.trim() || bill.name }) })),
-        numberField('Amount', bill.amount || '', (v) => update({ amount: v ?? 0 }))
+        h('label', { class: 'field' }, h('span', {}, 'Paid to'), h('input', { type: 'text', value: bill.payTo || '', placeholder: 'Company or person', onchange: (e) => update({ payTo: e.target.value.trim() }) })),
+        numberField(bill.variable ? 'Amount (estimate)' : 'Amount', bill.amount || '', (v) => update({ amount: v ?? 0 }))
       ),
       h(
         'div',
@@ -52,6 +78,12 @@ function renderBill(bill, available) {
         { class: 'fields wrap' },
         h('label', { class: 'field' }, h('span', {}, 'Paid from envelope'), envelopeSelect(bill.envelopeId, (v) => update({ envelopeId: v }), { special: false, blank: 'No envelope' })),
         h('label', { class: 'field' }, h('span', {}, 'Paid from account'), accountSelect(bill.accountId, (v) => update({ accountId: v })))
+      ),
+      h(
+        'label',
+        { class: 'check' },
+        h('input', { type: 'checkbox', checked: !!bill.variable, onchange: (e) => update({ variable: e.target.checked }) }),
+        'The amount changes each time (utilities, for example)'
       ),
       h(
         'label',
@@ -72,10 +104,12 @@ function renderBill(bill, available) {
   const amount = Number(bill.amount) || 0;
   const short = available !== undefined && amount > 0 && available < amount - 0.004;
   const details = [
+    bill.payTo && `To ${bill.payTo}`,
     longDate(bill.nextDue),
     db.get(bill.accountId)?.name,
     (bill.every || 1) > 1 && REPEATS.find(([n]) => n === bill.every)?.[1].toLowerCase(),
   ].filter(Boolean);
+  const usual = bill.variable && billEstimate(bill.history);
 
   return h(
     'div',
@@ -84,9 +118,36 @@ function renderBill(bill, available) {
       'div',
       { class: 'tx-line' },
       h('span', {}, h('strong', {}, bill.name), h('div', { class: 'muted small' }, details.join(' · '))),
-      h('strong', {}, amount > 0 ? money(amount) : h('span', { class: 'muted' }, 'No amount'))
+      bill.variable
+        ? // A changing bill gets its box right here: type this month's
+          // amount when the bill arrives, no need to open Edit.
+          h(
+            'label',
+            { class: 'field bill-amount' },
+            h('span', {}, 'This time'),
+            h('input', { type: 'number', step: 'any', min: '0', inputMode: 'decimal', value: bill.amount || '', data: { key: `bill-${bill.id}` }, onchange: (e) => update({ amount: num(e.target.value) ?? 0 }) })
+          )
+        : h('strong', {}, amount > 0 ? money(amount) : h('span', { class: 'muted' }, 'No amount'))
     ),
+    usual && h('div', { class: 'muted small' }, `Recent average ${money(usual)}.`),
     short && h('div', { class: 'warn small' }, `Its envelope only has ${money(available)}.`),
+    payment &&
+      h(
+        'div',
+        { class: 'found' },
+        h('span', {}, `Looks paid: ${money(payment.amount)} on ${longDate(payment.tx.date)}${payment.tx.payee ? ` (${payment.tx.payee})` : ''}.`),
+        h(
+          'button',
+          {
+            class: 'primary',
+            onclick: () => {
+              advance(bill, payment.amount, payment.tx.date, { lastTxId: payment.tx.id });
+              rerender();
+            },
+          },
+          "Yes, that's it"
+        )
+      ),
     h(
       'div',
       { class: 'tx-line' },
@@ -97,6 +158,7 @@ function renderBill(bill, available) {
 }
 
 export function renderBills() {
+  if (tidyNames(db.all('bill'))) rerender();
   const bills = db.all('bill').sort((a, b) => (a.nextDue < b.nextDue ? -1 : a.nextDue > b.nextDue ? 1 : 0));
   const now = today();
   const weekEnd = addDays(weekStart(now), 6);
@@ -105,6 +167,10 @@ export function renderBills() {
     { envelopes: db.all('envelope'), transactions: db.all('tx'), assignments: db.all('assign'), accounts: db.all('account') },
     weekStart(now)
   );
+
+  const txs = db.all('tx');
+  const perEnvelope = new Map();
+  for (const b of bills) if (b.envelopeId) perEnvelope.set(b.envelopeId, (perEnvelope.get(b.envelopeId) || 0) + 1);
 
   const sections = [
     ['Overdue', (b) => b.nextDue < now],
@@ -121,7 +187,7 @@ export function renderBills() {
       'section',
       { class: 'card' + (title === 'Overdue' ? ' overdue' : '') },
       h('div', { class: 'list-head' }, h('h2', {}, title), h('span', { class: 'muted' }, money(total(list)))),
-      list.map((b) => renderBill(b, budget.rows.get(b.envelopeId)?.available))
+      list.map((b) => renderBill(b, budget.rows.get(b.envelopeId)?.available, findPayment(b, txs, (perEnvelope.get(b.envelopeId) || 0) > 1)))
     );
   });
 

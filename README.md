@@ -17,7 +17,10 @@ transactions, a debt payoff planner, and a grocery price planner.
   Accounts show a running balance you can check against the bank.
 - **Bills**: what's due this week and in the next 30 days, which account it
   comes from, and whether its envelope has enough in it. Marking a bill paid
-  records the transaction and moves it to its next due date.
+  records the transaction and moves it to its next due date. Bills whose
+  amount changes (utilities) take this month's amount right on the row and
+  estimate the next one from recent payments. When a matching payment shows
+  up among your transactions, the bill offers to mark itself paid.
 - **Debts**: balances, rates and minimums, with a side-by-side comparison of
   paying smallest-balance-first (snowball) and highest-rate-first (avalanche).
   Link a debt to an envelope and payments from it bring the balance down.
