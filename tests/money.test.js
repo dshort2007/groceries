@@ -33,6 +33,8 @@ const data = {
 test('income minus everything assigned is left to assign', () => {
   assert.equal(budgetFor(data, '2026-11-20').leftToAssign, 650); // 1000 in, 350 assigned including next week's 100
   assert.equal(budgetFor(data, '2026-11-27').leftToAssign, 1150);
+  assert.equal(budgetFor(data, '2026-11-20').assignedLater, 100); // next week's groceries
+  assert.equal(budgetFor(data, '2026-11-27').assignedLater, 0);
 });
 
 test('unspent envelope money rolls into the next week', () => {

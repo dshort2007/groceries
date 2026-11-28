@@ -86,9 +86,7 @@ function looseEnds(d) {
   if (left < -0.004) {
     // Planning ahead of a paycheck isn't a problem; assigning more than
     // even the expected pay will cover is.
-    const lastAssigned = db.all('assign').filter((a) => Number(a.amount) > 0).reduce((max, a) => (a.week > max ? a.week : max), '');
-    const horizon = lastAssigned && budgetPeriod(lastAssigned).end > d.periodEnd ? budgetPeriod(lastAssigned).end : d.periodEnd;
-    const coming = expectedIncome(db.all('paycheck'), d.txs, d.periodStart, horizon, d.now).reduce((sum, e) => sum + e.amount, 0);
+    const coming = expectedIncome(db.all('paycheck'), d.txs, d.periodStart, d.periodEnd, d.now).reduce((sum, e) => sum + e.amount, 0) + d.budget.assignedLater;
     if (left + coming >= -0.004) add('budget', `You've planned ${money(-left)} ahead of pay that's still to come. It isn't there to spend until it arrives.`, 'info');
     else add('budget', `You've assigned ${money(-left - coming)} more than you ${coming > 0 ? 'will have, even with expected pay' : 'have'}. Take it back out of an envelope.`, 'urgent');
   }

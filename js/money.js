@@ -93,6 +93,7 @@ export function budgetFor({ envelopes, transactions, assignments, accounts = [] 
   let income = 0;
   let incomeThisWeek = 0;
   let assignedTotal = 0;
+  let assignedLater = 0; // assigned to weeks or months after this one
   let needsEnvelope = 0;
 
   for (const a of assignments) {
@@ -101,7 +102,10 @@ export function budgetFor({ envelopes, transactions, assignments, accounts = [] 
     // comes off what's left to assign. It only reaches the envelope's
     // balance once that period arrives.
     assignedTotal += amount;
-    if (a.week > end) continue;
+    if (a.week > end) {
+      assignedLater += amount;
+      continue;
+    }
     const row = rows.get(a.envelopeId);
     if (!row) continue;
     row.available += amount;
@@ -135,6 +139,7 @@ export function budgetFor({ envelopes, transactions, assignments, accounts = [] 
   }
   return {
     leftToAssign: round2(income - assignedTotal),
+    assignedLater: round2(assignedLater),
     incomeThisWeek: round2(incomeThisWeek),
     needsEnvelope,
     rows,
