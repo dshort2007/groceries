@@ -1,8 +1,8 @@
 // The bills calendar: what's due, from which account, and is the money
 // sitting in its envelope yet.
 
-import { h, money, num, numberField, rerender } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment, billMonthly, suggestBills } from '../money.js';
+import { h, money, num, numberField, rerender, download } from '../ui.js';
+import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment, billMonthly, suggestBills, priceChanges, billsToCalendar } from '../money.js';
 import { envelopeSelect, accountSelect, budgetPeriod } from './shared.js';
 import { renderPaychecks } from './paychecks.js';
 import * as db from '../db.js';
@@ -10,6 +10,7 @@ import * as db from '../db.js';
 let editingId = null;
 const SUGGEST_SETTINGS = '00000000-0000-4000-8000-000000000006'; // which suggestions were turned down
 let mode = 'calendar'; // or 'paychecks'
+let sortBy = 'date'; // or 'name', 'payTo'
 // How often a bill comes round. "d14" is every 14 days; "m3" every 3 months.
 const REPEATS = [['d7', 'Every week'], ['d14', 'Every 2 weeks'], ['semi', 'The 15th and the last day'], ['m1', 'Every month'], ['m3', 'Every 3 months'], ['m6', 'Every 6 months'], ['m12', 'Every year']];
 const repeatOf = (bill) => (bill.monthDays?.length ? 'semi' : Number(bill.days) > 0 ? `d${bill.days}` : `m${bill.every || 1}`);
@@ -251,6 +252,43 @@ function renderCalendar() {
       )
     );
 
+  // ---- Sorting, and a calendar file for reminders ----
+  const tools =
+    bills.length > 0 &&
+    h(
+      'div',
+      { class: 'budget-tools' },
+      h(
+        'label',
+        { class: 'field inline sort-pick' },
+        h('span', {}, 'Sort'),
+        h(
+          'select',
+          { onchange: (e) => { sortBy = e.target.value; rerender(); } },
+          [['date', 'By due date'], ['name', 'By name'], ['payTo', 'By who it\'s paid to']].map(([v, label]) => h('option', { value: v, selected: v === sortBy }, label))
+        )
+      ),
+      h('button', { class: 'link', onclick: () => download('bills.ics', billsToCalendar(bills), 'text/calendar') }, 'Add to my calendar')
+    );
+
+  // ---- Regular payments whose price just changed ----
+  const changes = priceChanges(txs, now);
+  const changed =
+    changes.length > 0 &&
+    h(
+      'div',
+      { class: 'card' },
+      h('h2', {}, 'Price changes'),
+      changes.map((c) =>
+        h(
+          'div',
+          { class: 'tx-line report-env' },
+          h('span', {}, c.name, h('span', { class: 'muted small' }, ` was ${money(c.was)}, now ${money(c.now)}`)),
+          h('strong', { class: c.change > 0 ? 'neg' : 'pos' }, `${c.change > 0 ? 'up' : 'down'} ${money(Math.abs(c.change))}`)
+        )
+      )
+    );
+
   const cards = sections.map(([title, test]) => {
     const list = bills.filter(test);
     if (list.length === 0) return null;
@@ -315,11 +353,25 @@ function renderCalendar() {
       )
     );
 
+  // Sorted by name or by who's paid: one plain list instead of sections.
+  const text = (b) => (sortBy === 'payTo' ? `${b.payTo || '\uffff'} ${b.name}` : b.name || '').toLowerCase();
+  const flat =
+    sortBy !== 'date' &&
+    bills.length > 0 &&
+    h(
+      'section',
+      { class: 'card' },
+      h('div', { class: 'list-head' }, h('h2', {}, sortBy === 'payTo' ? 'By who it\'s paid to' : 'By name'), h('span', { class: 'muted' }, money(total(bills)))),
+      [...bills].sort((a, b) => text(a).localeCompare(text(b))).map((b) => renderBill(b, budget.rows.get(b.envelopeId)?.available, findPayment(b, txs, (perEnvelope.get(b.envelopeId) || 0) > 1)))
+    );
+
   return [
     summary,
     bills.length === 0 && h('p', { class: 'empty' }, 'No bills yet. Add the ones that come around on a schedule.'),
+    tools,
     suggestions,
-    ...cards,
+    changed,
+    ...(sortBy === 'date' ? cards : [flat]),
     paid,
     addForm,
   ];

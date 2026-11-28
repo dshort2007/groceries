@@ -611,3 +611,6 @@ input[type="date"] { cursor: pointer; }
 .more-envelopes { display: block; margin: 6px 16px 8px; font-size: 0.9rem; }
 
 .bill-actions { justify-content: flex-start; }
+
+/* ---------- Bills sorting, backup ---------- */
+.sort-pick select { width: auto; }

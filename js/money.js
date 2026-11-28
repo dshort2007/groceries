@@ -637,3 +637,86 @@ export function suggestBills(transactions, bills, dismissed, now) {
   }
   return out.sort((a, b) => b.amount - a.amount);
 }
+
+// ---------- Price changes ----------
+
+// Regular payments whose amount has just changed after holding steady:
+// "Netflix went from $8.99 to $9.99". Needs at least three payments at a
+// steady rhythm, the earlier ones all the same, and a recent last one.
+export function priceChanges(transactions, now) {
+  const groups = new Map();
+  for (const t of transactions) {
+    const key = payeeKey(t.payee);
+    if (!key || !(t.amount < 0) || t.envelopeId === 'transfer' || t.envelopeId === 'income') continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  const out = [];
+  for (const list of groups.values()) {
+    if (list.length < 3) continue;
+    list.sort((a, b) => (a.date < b.date ? -1 : 1));
+    const gaps = list.slice(1).map((t, i) => Math.round((Date.parse(t.date) - Date.parse(list[i].date)) / 86400000));
+    if (!RHYTHMS.some((r) => gaps.every((g) => g >= r.min && g <= r.max))) continue;
+    const last = list.at(-1);
+    const earlier = list.slice(0, -1).map((t) => -t.amount);
+    const was = earlier.at(-1);
+    const steady = Math.max(...earlier) - Math.min(...earlier) <= Math.max(0.05, was * 0.01);
+    const change = round2(-last.amount - was);
+    if (!steady || Math.abs(change) < Math.max(0.5, was * 0.02)) continue;
+    if (Date.parse(now) - Date.parse(last.date) > 45 * 86400000) continue;
+    out.push({ name: last.payee, was: round2(was), now: round2(-last.amount), change, date: last.date });
+  }
+  return out.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+}
+
+// ---------- A calendar file of upcoming bills ----------
+
+// Bills as a calendar file (the .ics format every calendar app reads), each
+// repeating on its own rhythm with a reminder at 9am the day before.
+export function billsToCalendar(bills, stamp = new Date()) {
+  const compact = (date) => date.replaceAll('-', '');
+  const clean = (text) => String(text).replace(/[\\;,]/g, (c) => '\\' + c).replace(/\s+/g, ' ');
+  const made = stamp.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+  const rule = (b) => {
+    if (b.monthDays?.length) return `FREQ=MONTHLY;BYMONTHDAY=${b.monthDays.map((d) => (d >= 31 ? -1 : d)).join(',')}`;
+    if (Number(b.days) > 0) return `FREQ=WEEKLY;INTERVAL=${Math.round(Number(b.days) / 7)}`;
+    const day = Number(b.day) || Number(b.nextDue.slice(8));
+    // "The 31st" means the last day of shorter months, not a skipped month.
+    const onDay = day >= 31 ? 'BYMONTHDAY=-1' : day >= 29 ? `BYMONTHDAY=${[28, 29, 30].filter((d) => d <= day).join(',')};BYSETPOS=-1` : `BYMONTHDAY=${day}`;
+    return `FREQ=MONTHLY;INTERVAL=${Number(b.every) || 1};${onDay}`;
+  };
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Family Budget//Bills//EN', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Bills'];
+  for (const b of bills) {
+    if (!b.nextDue) continue;
+    const amount = Number(b.amount) > 0 ? ` $${Number(b.amount).toFixed(2)}` : '';
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${b.id}@family-budget`,
+      `DTSTAMP:${made}`,
+      `DTSTART;VALUE=DATE:${compact(b.nextDue)}`,
+      `DTEND;VALUE=DATE:${compact(addDays(b.nextDue, 1))}`,
+      `RRULE:${rule(b)}`,
+      `SUMMARY:${clean(`${b.name} due${amount}`)}`,
+      ...(b.payTo ? [`DESCRIPTION:${clean(`Paid to ${b.payTo}`)}`] : []),
+      'BEGIN:VALARM',
+      'ACTION:DISPLAY',
+      `DESCRIPTION:${clean(`${b.name} is due tomorrow`)}`,
+      'TRIGGER:-PT15H',
+      'END:VALARM',
+      'END:VEVENT'
+    );
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n') + '\r\n';
+}
+
+// ---------- Net worth ----------
+
+// What the family has in its accounts (cards left out; they're counted as
+// debts) minus what it owes, right now.
+export function netWorth(accounts, transactions, debts) {
+  const balances = accountBalances(accounts, transactions);
+  const cash = round2(accounts.filter((a) => a.type !== 'credit').reduce((sum, a) => sum + balances.get(a.id), 0));
+  const owed = round2(debts.reduce((sum, d) => sum + debtStatus(d, transactions).balance, 0));
+  return { cash, owed, net: round2(cash - owed) };
+}

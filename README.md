@@ -35,8 +35,11 @@ transactions, a debt payoff planner, and a grocery price planner.
   brand versus store brand, remembers how prices have moved, finds the
   cheapest plan across stores, and turns it into a checklist for shopping.
   Kroger-family stores can look prices up automatically.
-- **More > Reports**: income against spending for the last six months, where
-  the money went this month compared with usual, and the biggest payees.
+- **More > Reports**: income against spending by month and by year, where
+  the money went compared with usual, the biggest payees, bills that don't
+  come every month, and net worth over time.
+- **More > Backup**: download everything as a file, export transactions as
+  a spreadsheet, and restore from a backup.
 - **More > Side business**: log each job and see how it divides between the
   business, family savings and personal pay, by percentages you set.
 

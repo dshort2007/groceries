@@ -176,6 +176,28 @@ export async function sync() {
 
 export const hasUnsaved = () => dirty.size > 0;
 
+// Every record the app holds, for a backup file.
+export const exportAll = () => [...rows.values()].filter((r) => !r.deleted).map(({ id, kind, data }) => ({ id, kind, data }));
+
+// Puts records from a backup file back. Records with the same id are
+// replaced by the backup's version; anything newer than the backup stays.
+export function importAll(list) {
+  let count = 0;
+  for (const r of list) {
+    if (!r || typeof r.id !== 'string' || typeof r.kind !== 'string' || typeof r.data !== 'object') continue;
+    rows.set(r.id, { id: r.id, kind: r.kind, data: r.data, deleted: false });
+    dirty.add(r.id);
+    count++;
+  }
+  persistNow();
+  if (user) {
+    onStatus('Saving…');
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(sync, 300);
+  }
+  return count;
+}
+
 // Who is signed in on this device (null when running without sign-in).
 export const userId = () => user?.id ?? null;
 

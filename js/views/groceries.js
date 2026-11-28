@@ -5,7 +5,7 @@
 // add to the list or tick things off at the same time without overwriting
 // each other.
 
-import { optimize, bestLine, lineCost, storeIsEligible, parseSize, sizeIn } from '../optimizer.js';
+import { optimize, bestLine, lineCost, storeIsEligible, parseSize, sizeIn, perUnit } from '../optimizer.js';
 import { defaultState, normalizeState, newId, stableId } from '../storage.js';
 import { h, money, num, rerender } from '../ui.js';
 import { today } from '../money.js';
@@ -202,6 +202,14 @@ async function refreshKroger() {
 }
 
 function renderLookup(item, store) {
+  // Work out each result's price per ounce (or per count) so different
+  // sizes and brands can be compared, and flag the cheapest. Only results
+  // measured the same way as most of the others are compared.
+  const units = new Map((lookup.products || []).map((p) => [p, perUnit(p.price, p.size)]));
+  const kinds = [...units.values()].filter(Boolean).map((u) => u.unit);
+  const common = kinds.sort((a, b) => kinds.filter((k) => k === b).length - kinds.filter((k) => k === a).length)[0];
+  const comparable = (lookup.products || []).filter((p) => units.get(p)?.unit === common && !(item.brand === 'name' && p.storeBrand));
+  const bestValue = comparable.length > 1 ? comparable.reduce((a, b) => (units.get(b).price < units.get(a).price ? b : a)) : null;
   const term = h('input', { type: 'text', value: lookup.term, 'aria-label': 'Search Kroger for' });
   return h(
     'div',
@@ -219,7 +227,14 @@ function renderLookup(item, store) {
       h(
         'button',
         { class: 'product', onclick: () => { applyProduct(item, store, p); lookup = null; save(); rerender(); } },
-        h('span', {}, p.name, h('span', { class: 'muted small' }, ` · ${p.size || 'no size'}`), p.storeBrand && h('span', { class: 'badge' }, 'Store brand')),
+        h(
+          'span',
+          {},
+          p.name,
+          h('span', { class: 'muted small' }, ` · ${p.size || 'no size'}${units.get(p) ? ` · ${money(units.get(p).price)}/${units.get(p).unit}` : ''}`),
+          p.storeBrand && h('span', { class: 'badge' }, 'Store brand'),
+          p === bestValue && h('span', { class: 'badge good' }, 'Best value')
+        ),
         h('strong', {}, money(p.price), p.onSale && h('span', { class: 'muted small' }, ` was ${money(p.regular)}`))
       )
     ),

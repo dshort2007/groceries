@@ -81,3 +81,14 @@ export function rerenderWhenIdle() {
   const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName);
   setTimeout(typing ? rerenderWhenIdle : draw, typing ? 1500 : 0);
 }
+
+// Hands the person a file to save (a backup, a spreadsheet, a calendar).
+export function download(filename, text, type = 'text/plain') {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([text], { type }));
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+}

@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lineCost, bestLine, parseSize, sizeIn, optimize, storeFee } from '../js/optimizer.js';
+import { lineCost, bestLine, parseSize, sizeIn, perUnit, optimize, storeFee } from '../js/optimizer.js';
 
 const aldi = { id: 'aldi', name: 'Aldi' };
 const kroger = { id: 'kroger', name: 'Kroger' };
@@ -134,4 +134,13 @@ test('reads package sizes and converts them to the unit on the list', () => {
   assert.equal(sizeIn('ct', parseSize('18 ct')), 18);
   assert.equal(sizeIn('oz', parseSize('12 ct')), null); // count can't become weight
   assert.equal(sizeIn('oz', parseSize('500 g')), 17.64);
+});
+
+test('compares products of different sizes by price per unit', () => {
+  assert.deepEqual(perUnit(1.99, '12 ct'), { price: 1.99 / 12, unit: 'ct' });
+  assert.equal(perUnit(3.2, '1 lb').unit, 'oz');
+  assert.equal(perUnit(3.2, '1 lb').price, 0.2);
+  assert.equal(perUnit(2.56, '1/2 gal').price, 0.04); // per fl oz
+  assert.equal(perUnit(2, 'each'), null);
+  assert.equal(perUnit(0, '12 ct'), null);
 });

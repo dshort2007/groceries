@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf, suggestBills } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf, suggestBills, priceChanges, billsToCalendar, netWorth } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -385,4 +385,57 @@ test('spots regular payments that are not bills yet', () => {
   assert.equal(suggestBills(txs, [...bills, { name: 'Netflix', nextDue: '2026-12-24' }], [], '2026-11-28').some((f) => f.name === 'Netflix.com'), false);
   // Once it has a bill on the same envelope, it stops being suggested.
   assert.equal(suggestBills(txs, [...bills, { name: 'Streaming', envelopeId: 'subs', nextDue: '2026-12-24' }], [], '2026-11-28').some((f) => f.name === 'Netflix.com'), false);
+});
+
+test('notices when a regular payment changes price', () => {
+  const tx = (date, payee, amount) => ({ date, payee, amount, envelopeId: 'x' });
+  const txs = [
+    tx('2026-08-24', 'NETFLIX.COM', -8.99), tx('2026-09-24', 'NETFLIX.COM', -8.99), tx('2026-10-24', 'NETFLIX.COM', -8.99), tx('2026-11-24', 'NETFLIX.COM', -9.99),
+    tx('2026-09-02', 'AT&T', -259.12), tx('2026-10-02', 'AT&T', -259.12), tx('2026-11-02', 'AT&T', -184.39),
+    tx('2026-09-01', 'POWER CO', -141), tx('2026-10-01', 'POWER CO', -160), tx('2026-11-01', 'POWER CO', -118), // always varies
+    tx('2026-09-18', 'SPOTIFY', -11.99), tx('2026-10-18', 'SPOTIFY', -11.99), tx('2026-11-18', 'SPOTIFY', -11.99), // unchanged
+    tx('2026-05-10', 'OLD GYM', -30), tx('2026-06-10', 'OLD GYM', -30), tx('2026-07-10', 'OLD GYM', -35), // long ago
+  ];
+  assert.deepEqual(priceChanges(txs, '2026-11-28'), [
+    { name: 'AT&T', was: 259.12, now: 184.39, change: -74.73, date: '2026-11-02' },
+    { name: 'NETFLIX.COM', was: 8.99, now: 9.99, change: 1, date: '2026-11-24' },
+  ]);
+});
+
+test('writes bills as a calendar file with the right repeat rules', () => {
+  const ics = billsToCalendar([
+    { id: 'rent', name: 'Rent', payTo: 'FirstKey, Homes', amount: 2145, nextDue: '2026-12-01', every: 1, day: 1 },
+    { id: 'trash', name: 'Garbage', amount: 72, nextDue: '2027-02-15', every: 3, day: 15 },
+    { id: 'loan', name: 'Loan', amount: 249.52, nextDue: '2026-12-04', days: 14 },
+    { id: 'semi', name: 'Twice', amount: 0, nextDue: '2027-01-15', monthDays: [15, 31] },
+    { id: 'eom', name: 'Month end', amount: 10, nextDue: '2027-01-31', every: 1, day: 31 },
+    { id: 'none', name: 'No date' },
+  ], new Date('2026-11-28T12:00:00Z'));
+  const lines = ics.split('\r\n');
+  assert.deepEqual(lines.slice(0, 2), ['BEGIN:VCALENDAR', 'VERSION:2.0']);
+  assert.deepEqual(lines.slice(-2), ['END:VCALENDAR', '']);
+  assert.equal(lines.filter((l) => l === 'BEGIN:VEVENT').length, 5);
+  const rent = lines.slice(lines.indexOf('UID:rent@family-budget'), lines.indexOf('UID:rent@family-budget') + 7);
+  assert.deepEqual(rent, [
+    'UID:rent@family-budget',
+    'DTSTAMP:20261128T120000Z',
+    'DTSTART;VALUE=DATE:20261201',
+    'DTEND;VALUE=DATE:20261202',
+    'RRULE:FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=1',
+    'SUMMARY:Rent due $2145.00',
+    'DESCRIPTION:Paid to FirstKey\\, Homes',
+  ]);
+  assert.ok(lines.includes('RRULE:FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=15'));
+  assert.ok(lines.includes('RRULE:FREQ=WEEKLY;INTERVAL=2'));
+  assert.ok(lines.includes('RRULE:FREQ=MONTHLY;BYMONTHDAY=15,-1'));
+  assert.ok(lines.includes('SUMMARY:Twice due'));
+  assert.ok(lines.includes('RRULE:FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=-1'));
+  assert.equal(lines.filter((l) => l === 'TRIGGER:-PT15H').length, 5);
+});
+
+test('net worth is cash in accounts minus what is owed', () => {
+  const accounts = [{ id: 'chk', type: 'checking', startBalance: 1000 }, { id: 'sav', type: 'savings', startBalance: 250 }, { id: 'card', type: 'credit', startBalance: -400 }];
+  const txs = [{ date: '2026-11-10', accountId: 'chk', amount: -200, envelopeId: 'loan' }, { date: '2026-11-11', accountId: 'card', amount: -50, envelopeId: 'groc' }];
+  const debts = [{ balance: 5000, asOf: '2026-11-01', envelopeId: 'loan' }, { balance: 400 }];
+  assert.deepEqual(netWorth(accounts, txs, debts), { cash: 1050, owed: 5200, net: -4150 });
 });

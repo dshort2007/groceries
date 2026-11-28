@@ -4,6 +4,7 @@ import { h, rerender } from '../ui.js';
 import { renderGroceries } from './groceries.js';
 import { renderSideJob, sideJobSettings } from './sidejob.js';
 import { renderReports } from './reports.js';
+import { renderBackup } from './backup.js';
 
 let section = 'groceries';
 
@@ -12,6 +13,7 @@ export function renderMore() {
     ['groceries', 'Groceries', renderGroceries],
     ['reports', 'Reports', renderReports],
     ['sidejob', sideJobSettings().name, renderSideJob],
+    ['backup', 'Backup', renderBackup],
   ];
   return [
     h(

@@ -11,6 +11,7 @@ import { renderDebts } from './views/debts.js';
 import { GROCERY_ID } from './views/groceries.js';
 import { renderMore } from './views/more.js';
 import { refreshBank, syncBank, resumeBankLink } from './views/bank.js';
+import { recordSnapshot } from './views/reports.js';
 
 const TABS = [
   ['overview', 'Overview', renderOverview],
@@ -132,6 +133,9 @@ async function openApp() {
   // Bank connections: finish one in progress, then fetch anything new.
   resumeBankLink();
   refreshBank().then(() => syncBank(false));
+  // Note this month's net worth, now and once the bank has been checked.
+  recordSnapshot();
+  setTimeout(recordSnapshot, 20000);
 }
 
 async function start() {
@@ -142,6 +146,7 @@ async function start() {
   if (!db.configured) {
     open = true;
     view = db.all('envelope').length > 0 ? 'overview' : 'budget';
+    recordSnapshot();
     return render();
   }
   if (!user) return renderSignIn();

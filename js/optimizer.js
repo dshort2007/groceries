@@ -156,3 +156,14 @@ export function optimize(state) {
   singles.sort(comparePlans);
   return { best, bestSingle: singles[0] || null, singles, byCount, excluded };
 }
+
+// For comparing products of different sizes: the price per ounce, per
+// count and so on. Returns { price, unit } or null when the size can't be
+// read. Weights are compared per oz and volumes per fl oz.
+export function perUnit(price, sizeText) {
+  const parsed = parseSize(sizeText);
+  const base = parsed && TO_BASE[parsed.unit];
+  if (!base || !(price > 0)) return null;
+  const unit = { weight: 'oz', volume: 'fl oz', count: 'ct' }[base[0]];
+  return { price: price / (parsed.amount * base[1]), unit };
+}
