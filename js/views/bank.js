@@ -253,7 +253,9 @@ function renderItem(item) {
             'button',
             {
               onclick: () => {
-                db.put('tx', { date: today(), payee: 'Balance correction', amount: diff, envelopeId: '', accountId: matched.id, created: Date.now() });
+                db.put('tx', { date: today(), // Filed against money to assign: if the account really holds more or
+                // less than the app thought, that's more or less to budget with.
+                payee: 'Balance correction', amount: diff, envelopeId: 'income', accountId: matched.id, created: Date.now() });
                 rerender();
               },
             },

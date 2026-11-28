@@ -79,7 +79,7 @@ function renderAccount(a, balance, used) {
             if (said === null) return;
             const diff = Math.round(((credit ? -Math.abs(said) : said) - balance) * 100) / 100;
             if (diff === 0) return alert('It already matches.');
-            db.put('tx', { date: today(), payee: 'Balance correction', amount: diff, envelopeId: '', accountId: a.id, created: Date.now() });
+            db.put('tx', { date: today(), payee: 'Balance correction', amount: diff, envelopeId: 'income', accountId: a.id, created: Date.now() });
             rerender();
           },
         },
