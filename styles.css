@@ -609,3 +609,5 @@ input[type="date"] { cursor: pointer; }
 .budget-tools { flex-wrap: wrap; align-items: center; }
 
 .more-envelopes { display: block; margin: 6px 16px 8px; font-size: 0.9rem; }
+
+.bill-actions { justify-content: flex-start; }

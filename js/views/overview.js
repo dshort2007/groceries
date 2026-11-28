@@ -3,7 +3,7 @@
 // tabs show; nothing is stored.
 
 import { h, icon, money, goTo } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly, goalStatus } from '../money.js';
+import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly, goalStatus, suggestBills } from '../money.js';
 import { bankSummary } from './bank.js';
 import { budgetPeriod } from './shared.js';
 import { when, span, SETTINGS_ID, debtStrategy, planPayment } from './debts.js';
@@ -105,6 +105,8 @@ function looseEnds(d) {
   if (stale.length) add('debts', `Balances not updated in over a month: ${stale.map((x) => x.name).join(', ')}. Enter the figure from the latest statement.`, 'info');
   const unlinked = d.owing.filter((x) => !x.envelopeId);
   if (unlinked.length) add('debts', `Not linked to an envelope, so payments won't bring the balance down: ${unlinked.map((x) => x.name).join(', ')}.`, 'info');
+  const maybeBills = suggestBills(d.txs, d.bills, db.get('00000000-0000-4000-8000-000000000006')?.notBills, d.now);
+  if (maybeBills.length) add('bills', `${plural(maybeBills.length, 'regular payment')} ${maybeBills.length === 1 ? 'looks' : 'look'} like ${maybeBills.length === 1 ? 'a bill' : 'bills'} you haven't set up: ${maybeBills.slice(0, 3).map((f) => f.name).join(', ')}.`, 'info');
   const noAmount = d.bills.filter((b) => !(Number(b.amount) > 0));
   if (noAmount.length) add('bills', `No amount entered for ${noAmount.map((b) => b.name).join(', ')}.`, 'info');
 

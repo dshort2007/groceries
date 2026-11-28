@@ -573,3 +573,67 @@ export function monthlyReport(envelopes, transactions, months) {
     payees: Object.fromEntries(months.map((m) => [m, [...payees.get(m)].map(([payee, spent]) => ({ payee, spent: round2(spent) })).filter((p) => p.spent > 0).sort((a, b) => b.spent - a.spent)])),
   };
 }
+
+// ---------- Spotting bills in the transactions ----------
+
+// Looks for payments to the same place at a steady rhythm (weekly, every
+// two weeks, monthly, quarterly, yearly) that aren't set up as bills yet.
+// Two payments are enough when the amounts match; if the amount varies it
+// takes three, and only monthly or slower, so regular grocery runs and
+// fill-ups don't get mistaken for bills.
+const RHYTHMS = [
+  { min: 6, max: 8, repeat: { days: 7 }, label: 'every week' },
+  { min: 13, max: 16, repeat: { days: 14 }, label: 'every 2 weeks' },
+  { min: 26, max: 34, repeat: { every: 1 }, label: 'every month' },
+  { min: 84, max: 96, repeat: { every: 3 }, label: 'every 3 months' },
+  { min: 355, max: 375, repeat: { every: 12 }, label: 'every year' },
+];
+
+export function suggestBills(transactions, bills, dismissed, now) {
+  const taken = new Set([...bills.flatMap((b) => [payeeKey(b.payTo), payeeKey(b.name)]), ...(dismissed || [])].filter(Boolean));
+  const paidByBill = new Set(bills.map((b) => b.lastTxId).filter(Boolean));
+  const groups = new Map();
+  for (const t of transactions) {
+    const key = payeeKey(t.payee);
+    if (!key || !(t.amount < 0) || t.envelopeId === 'transfer' || t.envelopeId === 'income' || /^balance correction$/i.test(t.payee || '')) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+
+  const out = [];
+  for (const [key, list] of groups) {
+    // Already a bill if the names line up, even loosely: a bill called
+    // "Netflix" covers payments to "NETFLIX.COM".
+    const known = [...taken].some((k) => (key + ' ').startsWith(k + ' ') || (k + ' ').startsWith(key + ' '));
+    if (list.length < 2 || known || list.some((t) => paidByBill.has(t.id))) continue;
+    list.sort((a, b) => (a.date < b.date ? -1 : 1));
+    const gaps = list.slice(1).map((t, i) => Math.round((Date.parse(t.date) - Date.parse(list[i].date)) / 86400000));
+    const rhythm = RHYTHMS.find((r) => gaps.every((g) => g >= r.min && g <= r.max));
+    if (!rhythm) continue;
+    const amounts = list.map((t) => -t.amount);
+    const steady = Math.max(...amounts) - Math.min(...amounts) <= Math.max(1, Math.min(...amounts) * 0.02);
+    if (!steady && (list.length < 3 || rhythm.repeat.days)) continue;
+
+    const last = list.at(-1);
+    // A bill paid from an envelope already used by another bill is probably
+    // that bill under a different name.
+    const envelopeId = last.envelopeId && last.envelopeId !== 'split' ? last.envelopeId : '';
+    if (envelopeId && bills.some((b) => b.envelopeId === envelopeId)) continue;
+    const bill = { nextDue: last.date, day: Number(last.date.slice(8)), days: 0, every: 1, ...rhythm.repeat };
+    while (bill.nextDue < now) bill.nextDue = dueAfter(bill);
+    out.push({
+      key,
+      name: last.payee,
+      amount: steady ? round2(amounts.at(-1)) : round2(amounts.slice(-3).reduce((a, b) => a + b, 0) / Math.min(3, amounts.length)),
+      variable: !steady,
+      label: rhythm.label,
+      count: list.length,
+      lastPaid: last.date,
+      envelopeId,
+      accountId: last.accountId || '',
+      fromBank: !!(last.plaidId || last.importKey),
+      ...bill,
+    });
+  }
+  return out.sort((a, b) => b.amount - a.amount);
+}

@@ -2,12 +2,13 @@
 // sitting in its envelope yet.
 
 import { h, money, num, numberField, rerender } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment, billMonthly } from '../money.js';
+import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment, billMonthly, suggestBills } from '../money.js';
 import { envelopeSelect, accountSelect, budgetPeriod } from './shared.js';
 import { renderPaychecks } from './paychecks.js';
 import * as db from '../db.js';
 
 let editingId = null;
+const SUGGEST_SETTINGS = '00000000-0000-4000-8000-000000000006'; // which suggestions were turned down
 let mode = 'calendar'; // or 'paychecks'
 // How often a bill comes round. "d14" is every 14 days; "m3" every 3 months.
 const REPEATS = [['d7', 'Every week'], ['d14', 'Every 2 weeks'], ['semi', 'The 15th and the last day'], ['m1', 'Every month'], ['m3', 'Every 3 months'], ['m6', 'Every 6 months'], ['m12', 'Every year']];
@@ -279,9 +280,45 @@ function renderCalendar() {
     h('button', { type: 'submit', class: 'primary' }, 'Add')
   );
 
+  // ---- Regular payments that look like bills but aren't set up ----
+  const settings = db.get(SUGGEST_SETTINGS) || { id: SUGGEST_SETTINGS };
+  const found = suggestBills(txs, bills, settings.notBills, now);
+  const suggestions =
+    found.length > 0 &&
+    h(
+      'div',
+      { class: 'card' },
+      h('div', { class: 'list-head' }, h('h2', {}, 'Looks like a bill'), h('span', { class: 'muted' }, String(found.length))),
+      h('p', { class: 'muted small' }, 'Payments to the same place at a steady rhythm that aren\'t on your list yet.'),
+      found.map((f) =>
+        h(
+          'div',
+          { class: 'tx' },
+          h('div', { class: 'tx-line' }, h('span', {}, h('strong', {}, f.name), h('div', { class: 'muted small' }, `${f.label}${f.variable ? ', amount varies' : ''} · paid ${f.count} times · next about ${longDate(f.nextDue)}`)), h('strong', {}, money(f.amount))),
+          h(
+            'div',
+            { class: 'tx-line bill-actions' },
+            h(
+              'button',
+              {
+                onclick: () => {
+                  // It arrived from the bank, so marking it paid shouldn't add a second transaction.
+                  editingId = db.put('bill', { name: f.name, amount: f.amount, nextDue: f.nextDue, day: f.day, days: f.days, every: f.every, envelopeId: f.envelopeId, accountId: f.accountId, variable: f.variable, record: !f.fromBank, lastPaid: f.lastPaid });
+                  rerender();
+                },
+              },
+              'Add as a bill'
+            ),
+            h('button', { class: 'link', onclick: () => { db.put('settings', { ...settings, notBills: [...(settings.notBills || []), f.key] }); rerender(); } }, 'Not a bill')
+          )
+        )
+      )
+    );
+
   return [
     summary,
     bills.length === 0 && h('p', { class: 'empty' }, 'No bills yet. Add the ones that come around on a schedule.'),
+    suggestions,
     ...cards,
     paid,
     addForm,

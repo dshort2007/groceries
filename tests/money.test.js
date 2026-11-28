@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf, suggestBills } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -355,4 +355,34 @@ test('the budget can be looked at a month at a time', () => {
   assert.equal(budgetFor(more, '2026-12-01', '2026-12-31').rows.get('gas').assigned, 80);
   assert.equal(budgetFor(more, '2026-12-01', '2026-12-31').rows.get('gas').available, 130);
   assert.equal(budgetFor(more, '2026-11-27').rows.get('gas').assigned, 80);
+});
+
+test('spots regular payments that are not bills yet', () => {
+  const tx = (id, date, payee, amount, extra = {}) => ({ id, date, payee, amount, envelopeId: '', ...extra });
+  const txs = [
+    tx('n1', '2026-09-24', 'NETFLIX.COM', -8.99, { plaidId: 'p1', accountId: 'chk' }), tx('n2', '2026-10-24', 'Netflix.com', -8.99, { plaidId: 'p2', accountId: 'chk', envelopeId: 'subs' }),
+    tx('u1', '2026-09-01', 'GEORGIA POWER', -141.2), tx('u2', '2026-10-02', 'GEORGIA POWER', -160.02), tx('u3', '2026-11-01', 'GEORGIA POWER', -118.4),
+    tx('g1', '2026-11-06', 'KROGER #432', -84), tx('g2', '2026-11-13', 'KROGER #432', -112.5), tx('g3', '2026-11-20', 'KROGER #432', -97.1), // weekly but varying: shopping
+    tx('w1', '2026-10-05', 'WATER DEPT', -40), tx('w2', '2026-11-04', 'WATER DEPT', -55), // only two, and they differ
+    tx('r1', '2026-10-01', 'FIRSTKEY HOMES', -2145), tx('r2', '2026-11-01', 'FIRSTKEY HOMES', -2145), // already a bill
+    tx('y1', '2026-10-10', 'GYM', -35), tx('y2', '2026-11-10', 'GYM', -35), // dismissed
+    tx('t1', '2026-10-15', 'To Savings', -100, { envelopeId: 'transfer' }), tx('t2', '2026-11-15', 'To Savings', -100, { envelopeId: 'transfer' }),
+    tx('l1', '2026-10-30', 'EARNEST', -249.52), tx('l2', '2026-11-13', 'EARNEST', -249.52), tx('l3', '2026-11-27', 'EARNEST', -249.52),
+    tx('i1', '2026-10-03', 'Paycheck', 2000, { envelopeId: 'income' }), tx('i2', '2026-11-03', 'Paycheck', 2000, { envelopeId: 'income' }),
+  ];
+  const bills = [{ name: 'Rent', payTo: 'FirstKey Homes', envelopeId: 'rent', nextDue: '2026-12-01' }];
+  const found = suggestBills(txs, bills, ['GYM'], '2026-11-28');
+  assert.deepEqual(found.map((f) => [f.name, f.amount, f.label, f.nextDue, f.variable]), [
+    ['EARNEST', 249.52, 'every 2 weeks', '2026-12-11', false],
+    ['GEORGIA POWER', 139.87, 'every month', '2026-12-01', true],
+    ['Netflix.com', 8.99, 'every month', '2026-12-24', false],
+  ]);
+  const netflix = found[2];
+  assert.equal(netflix.envelopeId, 'subs');
+  assert.equal(netflix.accountId, 'chk');
+  assert.equal(netflix.fromBank, true);
+  // A bill with a matching name covers it, even if the bank words it differently.
+  assert.equal(suggestBills(txs, [...bills, { name: 'Netflix', nextDue: '2026-12-24' }], [], '2026-11-28').some((f) => f.name === 'Netflix.com'), false);
+  // Once it has a bill on the same envelope, it stops being suggested.
+  assert.equal(suggestBills(txs, [...bills, { name: 'Streaming', envelopeId: 'subs', nextDue: '2026-12-24' }], [], '2026-11-28').some((f) => f.name === 'Netflix.com'), false);
 });
