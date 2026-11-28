@@ -618,3 +618,10 @@ input[type="date"] { cursor: pointer; }
 /* The More tab now has several sections: let them wrap onto two rows. */
 .subtabs.sections { flex-wrap: wrap; }
 .subtabs.sections button { flex: 1 1 30%; }
+
+/* ---------- Alert choices ---------- */
+.alert-choice { align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+.alert-choice input[type="checkbox"] { flex: none; margin-top: 3px; accent-color: var(--accent); }
+.inline-number { width: 84px !important; display: inline-block; padding: 3px 8px !important; margin-left: 2px; }
+.quiet { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0 2px; border-top: 1px solid var(--line); }
+.quiet select { width: auto; }

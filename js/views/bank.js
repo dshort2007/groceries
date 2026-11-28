@@ -12,7 +12,7 @@ const LINK_KEY = 'plaid-link';
 const PLAID_SCRIPT = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
 
 // The version of supabase/functions/plaid/index.ts this app expects.
-const FUNCTION_VERSION = 3;
+const FUNCTION_VERSION = 4;
 
 const state = { loaded: false, available: false, outdated: false, problem: '', items: [], busy: '', message: '' };
 let startDate = today();

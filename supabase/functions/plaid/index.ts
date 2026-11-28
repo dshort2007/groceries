@@ -14,7 +14,7 @@
 
 // Bump this whenever the function changes, so the app can tell when the
 // copy running on Supabase is out of date.
-export const VERSION = 3;
+export const VERSION = 4;
 
 const HOSTS = {
   sandbox: 'https://sandbox.plaid.com',
@@ -365,7 +365,17 @@ async function handle(req) {
     const { createClient } = await import('npm:@supabase/supabase-js@2');
     const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
-    // Who is asking? They must be signed in AND on the family list.
+    // The notification timer may ask for a sync (and nothing else), so
+    // there's fresh news to tell people about. It proves itself with the key
+    // kept in the locked notifications table.
+    const timerKey = req.headers.get('x-notify-key');
+    if (timerKey) {
+      const { data: config } = await db.from('push_config').select('cron_key').eq('id', 1);
+      if (!config?.length || config[0].cron_key !== timerKey) return reply({ error: 'Not allowed.' }, 403);
+      return reply(await run('sync', {}, { id: null }, makePlaid(env), makeStore(db)));
+    }
+
+    // Otherwise: who is asking? They must be signed in AND on the family list.
     const token = (req.headers.get('Authorization') || '').replace(/^Bearer /, '');
     const { data: auth } = await db.auth.getUser(token);
     if (!auth?.user) return reply({ error: 'Please sign in again.' }, 401);

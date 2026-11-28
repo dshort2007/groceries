@@ -1,8 +1,8 @@
 // The bills calendar: what's due, from which account, and is the money
 // sitting in its envelope yet.
 
-import { h, money, num, numberField, rerender, download } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment, billMonthly, suggestBills, priceChanges, billsToCalendar } from '../money.js';
+import { h, money, num, numberField, rerender } from '../ui.js';
+import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment, billMonthly, suggestBills, priceChanges } from '../money.js';
 import { envelopeSelect, accountSelect, budgetPeriod } from './shared.js';
 import { renderPaychecks } from './paychecks.js';
 import * as db from '../db.js';
@@ -252,7 +252,7 @@ function renderCalendar() {
       )
     );
 
-  // ---- Sorting, and a calendar file for reminders ----
+  // ---- Sorting ----
   const tools =
     bills.length > 0 &&
     h(
@@ -267,8 +267,7 @@ function renderCalendar() {
           { onchange: (e) => { sortBy = e.target.value; rerender(); } },
           [['date', 'By due date'], ['name', 'By name'], ['payTo', 'By who it\'s paid to']].map(([v, label]) => h('option', { value: v, selected: v === sortBy }, label))
         )
-      ),
-      h('button', { class: 'link', onclick: () => download('bills.ics', billsToCalendar(bills), 'text/calendar') }, 'Add to my calendar')
+      )
     );
 
   // ---- Regular payments whose price just changed ----

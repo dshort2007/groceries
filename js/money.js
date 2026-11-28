@@ -669,47 +669,6 @@ export function priceChanges(transactions, now) {
   return out.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 }
 
-// ---------- A calendar file of upcoming bills ----------
-
-// Bills as a calendar file (the .ics format every calendar app reads), each
-// repeating on its own rhythm with a reminder at 9am the day before.
-export function billsToCalendar(bills, stamp = new Date()) {
-  const compact = (date) => date.replaceAll('-', '');
-  const clean = (text) => String(text).replace(/[\\;,]/g, (c) => '\\' + c).replace(/\s+/g, ' ');
-  const made = stamp.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
-  const rule = (b) => {
-    if (b.monthDays?.length) return `FREQ=MONTHLY;BYMONTHDAY=${b.monthDays.map((d) => (d >= 31 ? -1 : d)).join(',')}`;
-    if (Number(b.days) > 0) return `FREQ=WEEKLY;INTERVAL=${Math.round(Number(b.days) / 7)}`;
-    const day = Number(b.day) || Number(b.nextDue.slice(8));
-    // "The 31st" means the last day of shorter months, not a skipped month.
-    const onDay = day >= 31 ? 'BYMONTHDAY=-1' : day >= 29 ? `BYMONTHDAY=${[28, 29, 30].filter((d) => d <= day).join(',')};BYSETPOS=-1` : `BYMONTHDAY=${day}`;
-    return `FREQ=MONTHLY;INTERVAL=${Number(b.every) || 1};${onDay}`;
-  };
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Family Budget//Bills//EN', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Bills'];
-  for (const b of bills) {
-    if (!b.nextDue) continue;
-    const amount = Number(b.amount) > 0 ? ` $${Number(b.amount).toFixed(2)}` : '';
-    lines.push(
-      'BEGIN:VEVENT',
-      `UID:${b.id}@family-budget`,
-      `DTSTAMP:${made}`,
-      `DTSTART;VALUE=DATE:${compact(b.nextDue)}`,
-      `DTEND;VALUE=DATE:${compact(addDays(b.nextDue, 1))}`,
-      `RRULE:${rule(b)}`,
-      `SUMMARY:${clean(`${b.name} due${amount}`)}`,
-      ...(b.payTo ? [`DESCRIPTION:${clean(`Paid to ${b.payTo}`)}`] : []),
-      'BEGIN:VALARM',
-      'ACTION:DISPLAY',
-      `DESCRIPTION:${clean(`${b.name} is due tomorrow`)}`,
-      'TRIGGER:-PT15H',
-      'END:VALARM',
-      'END:VEVENT'
-    );
-  }
-  lines.push('END:VCALENDAR');
-  return lines.join('\r\n') + '\r\n';
-}
-
 // ---------- Net worth ----------
 
 // What the family has in its accounts (cards left out; they're counted as

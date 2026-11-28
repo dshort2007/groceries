@@ -21,15 +21,16 @@ insert into public.push_config (id) values (1);
 grant select, insert, update on public.records to service_role;
 grant select on public.members to service_role;
 
--- A daily timer inside the database. Every day at 14:00 UTC (9am Eastern in
--- winter, 10am in summer) it asks the "notify" function to send the summary.
--- It proves it's the timer by sending the key stored above.
+-- A timer inside the database. At the top of every hour it asks the
+-- "notify" function to check the bank and send anything worth telling:
+-- alerts as things happen, and the summary once each morning. It proves
+-- it's the timer by sending the key stored above.
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 
 select cron.schedule(
   'family-budget-notify',
-  '0 14 * * *',
+  '0 * * * *',
   $job$
   select net.http_post(
     url := 'https://iaqusemsdmlrqrenqbyw.supabase.co/functions/v1/notify',
@@ -38,7 +39,7 @@ select cron.schedule(
       'apikey', 'sb_publishable_QthGB9tWFXOpGqzFoqKp0A_FICXMTRm',
       'x-notify-key', (select cron_key from public.push_config where id = 1)
     ),
-    body := '{"action":"daily"}'::jsonb
+    body := '{"action":"tick"}'::jsonb
   );
   $job$
 );

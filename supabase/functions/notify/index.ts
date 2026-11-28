@@ -14,7 +14,12 @@
 // Optional setting (Supabase > Edge Functions > Secrets):
 //   NOTIFY_TZ   the family's time zone, default America/New_York
 
-export const VERSION = 1;
+export const VERSION = 2;
+
+// Where the family's alert choices, and the function's own notes on what it
+// has already told people, are kept among the app's records.
+const ALERT_SETTINGS = '00000000-0000-4000-8000-000000000008';
+const ALERT_STATE = '00000000-0000-4000-8000-000000000009';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -149,6 +154,95 @@ export function digest(records, today) {
   return { title, body: lines.join(' ') };
 }
 
+// ---------- Things worth telling people as they happen ----------
+
+export const DEFAULT_ALERTS = {
+  summary: true, // the morning summary
+  toFile: true, // new bank transactions that need an envelope
+  income: true, // money arriving
+  large: true, // a big purchase
+  largeOver: 200,
+  overspent: true, // an envelope going into the red
+  low: true, // an account running low
+  lowUnder: 100,
+  quietFrom: 21, // no notifications from 9pm...
+  quietTo: 7, // ...until 7am
+};
+
+const dollars = (n) => '$' + Math.abs(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Is this hour inside the quiet stretch? (Which may run past midnight.)
+export function isQuiet(hour, settings) {
+  const from = Number(settings.quietFrom);
+  const to = Number(settings.quietTo);
+  if (from === to) return false;
+  return from < to ? hour >= from && hour < to : hour >= from || hour < to;
+}
+
+// Compares the records with what was true at the last check and returns the
+// notifications to send, plus the notes to keep for next time. `state` is
+// those notes; on the very first check nothing is sent, so a new setup
+// doesn't announce everything that already exists.
+export function events(records, state, settings, today) {
+  const of = (kind) => records.filter((r) => r.kind === kind && !r.deleted).map((r) => ({ id: r.id, ...r.data }));
+  const txs = of('tx');
+  const alerts = [];
+  const first = !state || state.txMark === undefined;
+  const next = { ...(state || {}) };
+
+  // ---- New transactions from the bank since the last check ----
+  const mark = Number(state?.txMark) || 0;
+  const fresh = txs.filter((t) => t.plaidId && Number(t.created) > mark).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  next.txMark = txs.reduce((max, t) => Math.max(max, Number(t.created) || 0), mark);
+  if (!first && fresh.length) {
+    const lines = [];
+    const arrived = fresh.filter((t) => t.amount >= 200 && t.envelopeId !== 'transfer');
+    const big = fresh.filter((t) => t.amount <= -Math.abs(Number(settings.largeOver) || 200) && t.envelopeId !== 'transfer');
+    const unfiled = fresh.filter((t) => !t.envelopeId);
+    if (settings.income && arrived.length) lines.push(`Money in: ${arrived.map((t) => `${dollars(t.amount)} from ${t.payee}`).join(', ')}. Time to give it a job.`);
+    if (settings.large && big.length) lines.push(`Large purchase: ${big.map((t) => `${dollars(t.amount)} at ${t.payee}`).join(', ')}.`);
+    if (settings.toFile && unfiled.length) {
+      const shown = unfiled.slice(0, 3).map((t) => `${t.payee} ${dollars(t.amount)}`).join(', ');
+      lines.push(`${plural(unfiled.length, 'transaction')} to file: ${shown}${unfiled.length > 3 ? ` and ${unfiled.length - 3} more` : ''}.`);
+    }
+    if (lines.length) {
+      const title = settings.income && arrived.length ? 'Money arrived' : settings.large && big.length ? 'Large purchase' : `${plural(unfiled.length, 'new transaction')}`;
+      alerts.push({ title, body: lines.join(' ') });
+    }
+  }
+
+  // ---- Envelopes that have just gone into the red ----
+  const balance = new Map();
+  const add = (id, amount) => balance.set(id, (balance.get(id) || 0) + (Number(amount) || 0));
+  for (const a of of('assign')) if ((a.week || '') <= today) add(a.envelopeId, a.amount);
+  for (const t of txs) {
+    if ((t.date || '') > today) continue;
+    for (const p of Array.isArray(t.splits) && t.splits.length ? t.splits : [t]) add(p.envelopeId, p.amount);
+  }
+  const red = of('envelope').filter((e) => !e.archived && (balance.get(e.id) || 0) < -0.004);
+  const wasRed = new Set(state?.red || []);
+  const newlyRed = red.filter((e) => !wasRed.has(e.id));
+  next.red = red.map((e) => e.id);
+  if (!first && settings.overspent && newlyRed.length) {
+    alerts.push({ title: newlyRed.length === 1 ? `${newlyRed[0].name} is overspent` : `${newlyRed.length} envelopes overspent`, body: newlyRed.map((e) => `${e.name} is ${dollars(balance.get(e.id))} over.`).join(' ') + ' Cover it from another envelope.' });
+  }
+
+  // ---- Accounts that have just dropped below the line ----
+  const limit = Number(settings.lowUnder) || 0;
+  const low = of('account')
+    .filter((a) => a.type !== 'credit')
+    .map((a) => ({ ...a, now: (Number(a.startBalance) || 0) + txs.filter((t) => t.accountId === a.id).reduce((sum, t) => sum + (Number(t.amount) || 0), 0) }))
+    .filter((a) => a.now < limit && (a.type === 'checking' || a.now < 0));
+  const wasLow = new Set(state?.low || []);
+  const newlyLow = low.filter((a) => !wasLow.has(a.id));
+  next.low = low.map((a) => a.id);
+  if (!first && settings.low && newlyLow.length) {
+    alerts.push({ title: 'Account running low', body: newlyLow.map((a) => `${a.name} is ${a.now < 0 ? 'overdrawn by' : 'down to'} ${dollars(a.now)}.`).join(' ') });
+  }
+
+  return { alerts, state: next };
+}
+
 // ---------- The web entry point ----------
 
 async function handle(req) {
@@ -187,35 +281,67 @@ async function handle(req) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const action = fromTimer ? 'daily' : body.action;
+    const action = fromTimer ? 'tick' : body.action;
     if (action === 'config') return reply({ version: VERSION, publicKey: keys.publicKey });
 
-    const records = check(await db.from('records').select('id, kind, data, deleted').in('kind', ['bill', 'envelope', 'assign', 'tx', 'push']).eq('deleted', false).limit(20000));
-    const summary = digest(records, localDate(env.NOTIFY_TZ || 'America/New_York'));
-    if (action === 'preview') return reply({ version: VERSION, summary });
+    // On the timer, first ask the bank function to fetch anything new, so
+    // there's fresh news to report. If that fails, carry on with what's here.
+    if (action === 'tick') {
+      await fetch(`${env.SUPABASE_URL}/functions/v1/plaid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-notify-key': config.cron_key, apikey: env.SUPABASE_ANON_KEY || '' },
+        body: JSON.stringify({ action: 'sync' }),
+      }).catch(() => null);
+    }
 
-    let payload;
-    if (action === 'test') payload = { title: 'Family Budget', body: 'Notifications are working on this device.' };
-    else if (action === 'daily') payload = summary;
-    else throw new Error('Unknown action.');
-    if (!payload) return reply({ version: VERSION, sent: 0, nothing: true });
+    const zone = env.NOTIFY_TZ || 'America/New_York';
+    const today = localDate(zone);
+    const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: zone, hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
+    const records = check(await db.from('records').select('id, kind, data, deleted').in('kind', ['bill', 'envelope', 'assign', 'tx', 'account', 'push', 'settings', 'notifystate']).eq('deleted', false).limit(20000));
+    const settings = { ...DEFAULT_ALERTS, ...(records.find((r) => r.id === ALERT_SETTINGS)?.data?.alerts || {}) };
+    const summary = digest(records, today);
+    if (action === 'preview') return reply({ version: VERSION, summary });
 
     // Send to every subscribed device. One that has gone away (the app was
     // removed, or permission withdrawn) answers 404 or 410: forget it.
     const devices = records.filter((r) => r.kind === 'push' && r.data?.endpoint && r.data?.keys);
-    let sent = 0;
     const failed = [];
-    for (const device of devices) {
-      try {
-        const status = await sendPush(device.data, payload, keys, env.SUPABASE_URL);
-        if (status >= 200 && status < 300) sent++;
-        else if (status === 404 || status === 410) await db.from('records').update({ deleted: true }).eq('id', device.id);
-        else failed.push(status);
-      } catch (err) {
-        failed.push(err.message);
+    const broadcast = async (payload) => {
+      let sent = 0;
+      for (const device of devices) {
+        try {
+          const status = await sendPush(device.data, payload, keys, env.SUPABASE_URL);
+          if (status >= 200 && status < 300) sent++;
+          else if (status === 404 || status === 410) await db.from('records').update({ deleted: true }).eq('id', device.id);
+          else failed.push(status);
+        } catch (err) {
+          failed.push(err.message);
+        }
       }
+      return sent;
+    };
+
+    if (action === 'test') {
+      const sent = await broadcast({ title: 'Family Budget', body: 'Notifications are working on this device.' });
+      return reply({ version: VERSION, sent, devices: devices.length, failed });
     }
-    return reply({ version: VERSION, sent, devices: devices.length, failed, summary: payload });
+    if (action !== 'tick') throw new Error('Unknown action.');
+
+    // During quiet hours nothing is sent and nothing is marked as told, so
+    // it all arrives together in the morning.
+    if (isQuiet(hour, settings)) return reply({ version: VERSION, quiet: true });
+
+    const stateRow = records.find((r) => r.id === ALERT_STATE);
+    const { alerts, state } = events(records, stateRow?.data, settings, today);
+    // The morning summary goes out at the first check at or after 9am.
+    if (settings.summary && hour >= 9 && state.summaryDate !== today) {
+      state.summaryDate = today;
+      if (summary) alerts.push(summary);
+    }
+    let sent = 0;
+    for (const alert of alerts) sent += await broadcast(alert);
+    check(await db.from('records').upsert({ id: ALERT_STATE, kind: 'notifystate', data: state, deleted: false }));
+    return reply({ version: VERSION, sent, devices: devices.length, failed, alerts });
   } catch (err) {
     return reply({ error: err.message || 'Something went wrong.' }, 400);
   }

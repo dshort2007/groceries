@@ -102,8 +102,9 @@ uses the Claude API, which is billed per use to an Anthropic account.
 
 ## Notifications (optional)
 
-Sends each device one notification a morning when bills are due or an
-envelope is overspent. On an iPhone or iPad the app must be added to the home
+Sends alerts as things happen (money arriving, large purchases, new
+transactions to file, an envelope going over, an account running low) and a
+summary each morning. The family chooses which under More > Alerts. On an iPhone or iPad the app must be added to the home
 screen first (Share > Add to Home Screen).
 
 1. **Supabase > Edge Functions**: create a function named `notify`, paste in

@@ -130,3 +130,75 @@ test("today's date follows the family's time zone, not the server's", () => {
   assert.equal(localDate('America/New_York', lateEvening), '2026-11-30');
   assert.equal(localDate('UTC', lateEvening), '2026-12-01');
 });
+
+// ---------- Alerts as things happen ----------
+
+const { events, isQuiet, DEFAULT_ALERTS } = await import(pathToFileURL(copy));
+
+const base = [
+  rec('envelope', 'groc', { name: 'Groceries' }),
+  rec('envelope', 'gas', { name: 'Gas' }),
+  rec('account', 'chk', { name: 'Chime - D', type: 'checking', startBalance: 500 }),
+  rec('account', 'sav', { name: 'Savings', type: 'savings', startBalance: 3 }),
+  rec('assign', 'a1', { week: '2026-11-27', envelopeId: 'groc', amount: 100 }),
+  rec('tx', 'old', { date: '2026-11-27', amount: -40, envelopeId: 'groc', accountId: 'chk', plaidId: 'p0', created: 1000 }),
+];
+
+test('the first check sends nothing and just takes notes', () => {
+  const { alerts, state } = events(base, undefined, DEFAULT_ALERTS, '2026-11-30');
+  assert.deepEqual(alerts, []);
+  assert.deepEqual(state, { txMark: 1000, red: [], low: [] });
+});
+
+test('tells about money arriving, big purchases and transactions to file, once', () => {
+  const state = { txMark: 1000, red: [], low: [] };
+  const records = [
+    ...base,
+    rec('tx', 'pay', { date: '2026-11-30', amount: 2430.4, payee: 'CROSSROADS', envelopeId: '', accountId: 'chk', plaidId: 'p1', created: 2000 }),
+    rec('tx', 'tv', { date: '2026-11-30', amount: -612, payee: 'BEST BUY', envelopeId: '', accountId: 'chk', plaidId: 'p2', created: 2001 }),
+    rec('tx', 'gas', { date: '2026-11-30', amount: -41, payee: 'SHELL', envelopeId: 'gas', accountId: 'chk', plaidId: 'p3', created: 2002 }), // filed by a rule
+    rec('tx', 'move', { date: '2026-11-30', amount: 500, payee: 'From savings', envelopeId: 'transfer', accountId: 'chk', plaidId: 'p4', created: 2003 }),
+    rec('tx', 'typed', { date: '2026-11-30', amount: -900, payee: 'Typed in by hand', envelopeId: '', created: 2004 }), // not from the bank
+  ];
+  const first = events(records, state, DEFAULT_ALERTS, '2026-11-30');
+  assert.equal(first.alerts[0].title, 'Money arrived');
+  assert.equal(first.alerts[0].body, 'Money in: $2,430.40 from CROSSROADS. Time to give it a job. Large purchase: $612.00 at BEST BUY. 2 transactions to file: CROSSROADS $2,430.40, BEST BUY $612.00.');
+  assert.equal(first.state.txMark, 2004);
+  // Gas went $41 over what was assigned to it.
+  assert.deepEqual(first.alerts[1], { title: 'Gas is overspent', body: 'Gas is $41.00 over. Cover it from another envelope.' });
+  assert.equal(first.alerts.length, 2);
+
+  // Asked again with nothing new: silence.
+  assert.deepEqual(events(records, first.state, DEFAULT_ALERTS, '2026-11-30').alerts, []);
+
+  // Each kind can be switched off.
+  const quieter = events(records, state, { ...DEFAULT_ALERTS, income: false, large: false, overspent: false }, '2026-11-30');
+  assert.deepEqual(quieter.alerts, [{ title: '2 new transactions', body: '2 transactions to file: CROSSROADS $2,430.40, BEST BUY $612.00.' }]);
+  assert.deepEqual(events(records, state, { ...DEFAULT_ALERTS, income: false, large: false, toFile: false, overspent: false }, '2026-11-30').alerts, []);
+});
+
+test('tells once when an account runs low or an envelope goes over, and again after it recovers', () => {
+  const state = { txMark: 5000, red: [], low: [] };
+  const spend = rec('tx', 's1', { date: '2026-11-30', amount: -450, payee: 'Rent top-up', envelopeId: 'groc', accountId: 'chk', plaidId: 'p9', created: 4000 });
+  const one = events([...base, spend], state, DEFAULT_ALERTS, '2026-11-30');
+  assert.deepEqual(one.alerts.map((a) => a.title), ['Groceries is overspent', 'Account running low']);
+  assert.equal(one.alerts[1].body, 'Chime - D is down to $10.00.'); // the $3 savings account isn't nagged about
+  assert.deepEqual(one.state.red, ['groc']);
+  assert.deepEqual(one.state.low, ['chk']);
+  assert.deepEqual(events([...base, spend], one.state, DEFAULT_ALERTS, '2026-11-30').alerts, []);
+
+  // Money comes back, then it dips again: that's worth saying again.
+  const refill = rec('tx', 's2', { date: '2026-11-30', amount: 1000, payee: 'Refund', envelopeId: 'groc', accountId: 'chk', created: 4500 });
+  const two = events([...base, spend, refill], one.state, DEFAULT_ALERTS, '2026-11-30');
+  assert.deepEqual(two.alerts, []);
+  assert.deepEqual(two.state.low, []);
+  const dip = rec('tx', 's3', { date: '2026-11-30', amount: -1100, payee: 'Big one', envelopeId: 'groc', accountId: 'chk', created: 4600 });
+  assert.equal(events([...base, spend, refill, dip], two.state, DEFAULT_ALERTS, '2026-11-30').alerts.at(-1).body, 'Chime - D is overdrawn by $90.00.');
+});
+
+test('quiet hours can run past midnight', () => {
+  const night = { quietFrom: 21, quietTo: 7 };
+  assert.deepEqual([20, 21, 23, 0, 6, 7, 12].map((h) => isQuiet(h, night)), [false, true, true, true, true, false, false]);
+  assert.deepEqual([12, 13, 14, 15].map((h) => isQuiet(h, { quietFrom: 13, quietTo: 15 })), [false, true, true, false]);
+  assert.equal(isQuiet(3, { quietFrom: 0, quietTo: 0 }), false); // same hour: no quiet time
+});

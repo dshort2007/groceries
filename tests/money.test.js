@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf, suggestBills, priceChanges, billsToCalendar, netWorth } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf, suggestBills, priceChanges, netWorth } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -400,37 +400,6 @@ test('notices when a regular payment changes price', () => {
     { name: 'AT&T', was: 259.12, now: 184.39, change: -74.73, date: '2026-11-02' },
     { name: 'NETFLIX.COM', was: 8.99, now: 9.99, change: 1, date: '2026-11-24' },
   ]);
-});
-
-test('writes bills as a calendar file with the right repeat rules', () => {
-  const ics = billsToCalendar([
-    { id: 'rent', name: 'Rent', payTo: 'FirstKey, Homes', amount: 2145, nextDue: '2026-12-01', every: 1, day: 1 },
-    { id: 'trash', name: 'Garbage', amount: 72, nextDue: '2027-02-15', every: 3, day: 15 },
-    { id: 'loan', name: 'Loan', amount: 249.52, nextDue: '2026-12-04', days: 14 },
-    { id: 'semi', name: 'Twice', amount: 0, nextDue: '2027-01-15', monthDays: [15, 31] },
-    { id: 'eom', name: 'Month end', amount: 10, nextDue: '2027-01-31', every: 1, day: 31 },
-    { id: 'none', name: 'No date' },
-  ], new Date('2026-11-28T12:00:00Z'));
-  const lines = ics.split('\r\n');
-  assert.deepEqual(lines.slice(0, 2), ['BEGIN:VCALENDAR', 'VERSION:2.0']);
-  assert.deepEqual(lines.slice(-2), ['END:VCALENDAR', '']);
-  assert.equal(lines.filter((l) => l === 'BEGIN:VEVENT').length, 5);
-  const rent = lines.slice(lines.indexOf('UID:rent@family-budget'), lines.indexOf('UID:rent@family-budget') + 7);
-  assert.deepEqual(rent, [
-    'UID:rent@family-budget',
-    'DTSTAMP:20261128T120000Z',
-    'DTSTART;VALUE=DATE:20261201',
-    'DTEND;VALUE=DATE:20261202',
-    'RRULE:FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=1',
-    'SUMMARY:Rent due $2145.00',
-    'DESCRIPTION:Paid to FirstKey\\, Homes',
-  ]);
-  assert.ok(lines.includes('RRULE:FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=15'));
-  assert.ok(lines.includes('RRULE:FREQ=WEEKLY;INTERVAL=2'));
-  assert.ok(lines.includes('RRULE:FREQ=MONTHLY;BYMONTHDAY=15,-1'));
-  assert.ok(lines.includes('SUMMARY:Twice due'));
-  assert.ok(lines.includes('RRULE:FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=-1'));
-  assert.equal(lines.filter((l) => l === 'TRIGGER:-PT15H').length, 5);
 });
 
 test('net worth is cash in accounts minus what is owed', () => {
