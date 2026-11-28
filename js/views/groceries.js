@@ -795,8 +795,13 @@ function renderPlan() {
 // Linking a store to a Kroger location lets items look their prices up.
 let finding = null; // { storeId, busy, error, locations }
 
+// Kroger and the chains it owns, which all share its price lookup.
+const KROGER_FAMILY = /kroger|ralphs|fred meyer|harris teeter|king soopers|fry'?s|smith'?s|qfc|dillons|city market|food 4 less|foods co|mariano'?s|pick '?n save|metro market|pay.?less|baker'?s|gerbes|jay ?c|owen'?s|ruler/i;
+
 function renderKrogerLink(store) {
   if (!db.ready) return null; // needs the server
+  // Only offered on stores it can work for (or one already linked).
+  if (!store.kroger?.locationId && !KROGER_FAMILY.test(store.name || '')) return null;
   if (store.kroger?.locationId) {
     return h(
       'div',
