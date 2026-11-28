@@ -6,7 +6,7 @@ import * as db from '../db.js';
 const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
 
 // The envelope picker. Income and transfers are special choices.
-export function envelopeSelect(value, onchange, { key, special = true, blank = 'Choose an envelope…' } = {}) {
+export function envelopeSelect(value, onchange, { key, special = true, blank = 'Choose an envelope…', label = 'Envelope' } = {}) {
   const groups = new Map();
   for (const e of db.all('envelope').filter((e) => !e.archived || e.id === value).sort(bySort)) {
     const name = e.group || 'Other';
@@ -16,7 +16,8 @@ export function envelopeSelect(value, onchange, { key, special = true, blank = '
   const option = (v, label) => h('option', { value: v, selected: v === (value || '') }, label);
   return h(
     'select',
-    { class: value || !special ? null : 'unfiled', 'aria-label': 'Envelope', data: key ? { key } : undefined, onchange: (e) => onchange(e.target.value) },
+    // Highlighted when it's asking for an answer, not when it's a filter.
+    { class: value || !special || blank !== 'Choose an envelope…' ? null : 'unfiled', 'aria-label': label, data: key ? { key } : undefined, onchange: (e) => onchange(e.target.value) },
     option('', blank),
     special && option('income', 'Income (to assign)'),
     special && option('transfer', 'Transfer between our accounts'),

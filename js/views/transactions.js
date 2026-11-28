@@ -13,6 +13,10 @@ let editingAccount = null;
 let draft = null; // the transaction being edited, with unsaved changes
 let pending = null; // a bank file that's been read but not imported yet
 let importAccount = '';
+let addOpen = false; // the add form stays open while you enter several
+let search = '';
+let filterAccount = '';
+let filterEnvelope = '';
 
 const TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['credit', 'Credit card'], ['cash', 'Cash']];
 const rules = () => new Map(db.all('rule').map((r) => [r.key, r]));
@@ -202,7 +206,7 @@ function renderAddForm() {
         rerender();
       },
     },
-    h('h2', {}, 'Add a transaction'),
+    h('div', { class: 'list-head' }, h('h2', {}, 'Add a transaction'), h('button', { type: 'button', class: 'link', onclick: () => { addOpen = false; rerender(); } }, 'Close')),
     h('div', { class: 'fields wrap' }, date, direction, amount),
     payee,
     h('div', { class: 'fields wrap' }, envelope, accountSelect('', (v) => (from = v), { blank: 'Which account?' }), toAccount),
@@ -406,7 +410,7 @@ function renderRow(t, mine) {
     h(
       'div',
       { class: 'tx-line' },
-      h('span', {}, h('span', { class: 'muted small' }, t.date.slice(5).replace('-', '/') + ' '), t.payee || '(no name)', account && h('span', { class: 'muted small' }, ` · ${account}`), t.pending && h('span', { class: 'badge', title: "The bank hasn't finalised this yet, so the amount may still change." }, 'Pending')),
+      h('span', {}, t.payee || '(no name)', account && h('span', { class: 'muted small' }, ` · ${account}`), t.pending && h('span', { class: 'badge', title: "The bank hasn't finalised this yet, so the amount may still change." }, 'Pending')),
       h('strong', { class: t.amount > 0 ? 'pos' : null }, money(t.amount))
     ),
     h(
@@ -425,34 +429,109 @@ function renderRow(t, mine) {
   );
 }
 
+const dayLabel = (date) => {
+  const now = today();
+  if (date === now) return 'Today';
+  const d = new Date(date + 'T00:00:00Z');
+  if (Math.round((Date.parse(now) - d) / 86400000) === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: date.slice(0, 4) === now.slice(0, 4) ? undefined : 'numeric', timeZone: 'UTC' });
+};
+
+const needsEnvelope = (t) => (t.splits ? t.splits.some((p) => !p.envelopeId) : !t.envelopeId);
+
+// Does a transaction match what's typed in the search box and the filters?
+function matches(t) {
+  if (onlyUnfiled && !needsEnvelope(t)) return false;
+  if (filterAccount && t.accountId !== filterAccount) return false;
+  if (filterEnvelope) {
+    const ids = t.splits ? t.splits.map((p) => p.envelopeId) : [t.envelopeId];
+    if (!ids.includes(filterEnvelope)) return false;
+  }
+  const words = search.trim().toLowerCase();
+  if (!words) return true;
+  return (t.payee || '').toLowerCase().includes(words) || Math.abs(t.amount).toFixed(2).includes(words);
+}
+
 export function renderTransactions() {
   const all = db.all('tx').sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.created ?? 0) - (a.created ?? 0)));
-  const unfiled = all.filter((t) => (t.splits ? t.splits.some((p) => !p.envelopeId) : !t.envelopeId));
+  const unfiled = all.filter(needsEnvelope);
   if (unfiled.length === 0) onlyUnfiled = false;
-  const shown = onlyUnfiled ? unfiled : all;
   const mine = myEnvelope();
+  const accountList = accounts();
+  const balances = accountBalances(accountList, all);
+  const cash = accountList.filter((a) => a.type !== 'credit').reduce((sum, a) => sum + balances.get(a.id), 0);
+  const owed = -accountList.filter((a) => a.type === 'credit').reduce((sum, a) => sum + balances.get(a.id), 0);
 
+  // ---- Summary ----
+  const summary = h(
+    'div',
+    { class: 'card left ' + (unfiled.length ? 'todo' : 'done') },
+    h('div', { class: 'muted small' }, 'In the bank'),
+    h('div', { class: 'big' }, money(cash)),
+    h(
+      'p',
+      { class: 'small' },
+      accountList.length === 0 ? 'Add your accounts below to track balances.' : [owed > 0.004 && `${money(owed)} owed on cards. `, unfiled.length ? `${unfiled.length} transaction${unfiled.length === 1 ? ' needs' : 's need'} an envelope.` : 'Everything is filed.'].filter(Boolean).join('')
+    ),
+    !addOpen && h('div', { class: 'button-row' }, h('button', { class: 'primary', onclick: () => { addOpen = true; rerender(); } }, 'Add a transaction'))
+  );
+
+  // ---- The list: redrawn on its own while you type in the search box ----
+  const body = h('div', {});
+  const count = h('span', { class: 'muted small' });
+  const drawList = () => {
+    const shown = all.filter(matches);
+    const filtering = onlyUnfiled || filterAccount || filterEnvelope || search.trim();
+    const out = -shown.filter((t) => t.amount < 0 && t.envelopeId !== 'transfer').reduce((sum, t) => sum + t.amount, 0);
+    count.textContent = filtering ? `${shown.length} found${out > 0 ? ` · ${money(out)} spent` : ''}` : '';
+    const rows = [];
+    let lastDate = null;
+    for (const t of shown.slice(0, limit)) {
+      if (t.date !== lastDate) rows.push(h('div', { class: 'date-head' }, dayLabel(t.date)));
+      lastDate = t.date;
+      rows.push(renderRow(t, mine));
+    }
+    body.replaceChildren(
+      ...rows,
+      ...(shown.length === 0 ? [h('p', { class: 'empty' }, all.length === 0 ? 'Nothing here yet.' : 'Nothing matches.')] : []),
+      ...(shown.length > limit ? [h('div', { class: 'button-row' }, h('button', { onclick: () => { limit += 100; rerender(); } }, 'Show more'))] : [])
+    );
+  };
+  drawList();
+
+  const chip = (label, on, toggle) => h('button', { class: 'chip' + (on ? ' on' : ''), 'aria-pressed': String(on), onclick: () => { toggle(); rerender(); } }, label);
   const list = h(
     'div',
     { class: 'card' },
-    h(
-      'div',
-      { class: 'list-head' },
-      h('h2', {}, onlyUnfiled ? 'Need an envelope' : 'Transactions'),
-      unfiled.length > 0 &&
-        h('button', { class: 'link', onclick: () => { onlyUnfiled = !onlyUnfiled; rerender(); } }, onlyUnfiled ? 'Show all' : `${unfiled.length} need an envelope`)
-    ),
-    shown.length === 0 && h('p', { class: 'empty' }, 'Nothing here yet.'),
-    h(
-      'label',
-      { class: 'field inline mine-pick' },
-      h('span', {}, 'My personal spending goes in'),
-      envelopeSelect(mine?.id || '', (v) => { db.put('person', { ...me(), envelopeId: v }); rerender(); }, { special: false, blank: 'Not set' })
-    ),
+    h('div', { class: 'list-head' }, h('h2', {}, 'Transactions'), count),
+    all.length > 0 &&
+      h(
+        'div',
+        { class: 'filters' },
+        h('input', { type: 'search', placeholder: 'Search by name or amount', value: search, 'aria-label': 'Search transactions', oninput: (e) => { search = e.target.value; drawList(); } }),
+        h(
+          'div',
+          { class: 'fields wrap' },
+          accountSelect(filterAccount, (v) => { filterAccount = v; rerender(); }, { blank: 'All accounts', label: 'Show account' }),
+          envelopeSelect(filterEnvelope, (v) => { filterEnvelope = v; rerender(); }, { blank: 'All envelopes', label: 'Show envelope' })
+        ),
+        h(
+          'div',
+          { class: 'chips' },
+          unfiled.length > 0 && chip(`${unfiled.length} need an envelope`, onlyUnfiled, () => (onlyUnfiled = !onlyUnfiled)),
+          (onlyUnfiled || filterAccount || filterEnvelope || search) && h('button', { class: 'link', onclick: () => { onlyUnfiled = false; filterAccount = filterEnvelope = search = ''; rerender(); } }, 'Clear filters')
+        )
+      ),
+    unfiled.length > 0 &&
+      h(
+        'label',
+        { class: 'field inline mine-pick' },
+        h('span', {}, 'My personal spending goes in'),
+        envelopeSelect(mine?.id || '', (v) => { db.put('person', { ...me(), envelopeId: v }); rerender(); }, { special: false, blank: 'Not set' })
+      ),
     !mine && unfiled.length > 0 && h('p', { class: 'muted small' }, 'Choose your own pocket-money envelope here and each unfiled purchase gets a one-tap "Mine" button. Each person sets their own.'),
-    shown.slice(0, limit).map((t) => renderRow(t, mine)),
-    shown.length > limit && h('div', { class: 'button-row' }, h('button', { onclick: () => { limit += 100; rerender(); } }, 'Show more'))
+    body
   );
 
-  return [renderAccounts(all), renderBank(), renderAddForm(), renderImport(), list];
+  return [summary, addOpen && renderAddForm(), list, renderAccounts(all), renderBank(), renderImport()];
 }

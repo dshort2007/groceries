@@ -585,3 +585,14 @@ details.group .envelope.editing { grid-template-columns: 1fr 1fr 110px 110px 130
 
 textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--field); font: inherit; color: inherit; resize: vertical; }
 details.card > label.field, details.card > textarea, details.card > button { margin-top: 8px; }
+
+/* ---------- Transactions and bills, reworked ---------- */
+.filters { display: grid; gap: 8px; margin: 4px 0 10px; }
+input[type="search"] { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--field); font: inherit; color: inherit; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip { border-radius: 999px; padding: 5px 12px; font-size: 0.85rem; font-weight: 600; background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.chip.on { background: var(--warn); color: var(--card); }
+.date-head { margin-top: 14px; padding-bottom: 2px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.date-head + .tx { border-top: none; margin-top: 0; padding-top: 4px; }
+.tx-line select { padding: 6px 8px; }
+.bill .badge { margin-left: 0; }

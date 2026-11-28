@@ -20,7 +20,10 @@ const longDate = (date) =>
 // Moves a bill on to its next due date. For a bill whose amount changes,
 // remember what was paid and use the recent average as the next estimate.
 function advance(bill, paid, date, extra = {}) {
-  const next = { ...bill, nextDue: dueAfter(bill), lastPaid: date, ...extra };
+  // Keep what's needed to undo this: where the bill stood before.
+  const { undo: _, ...before } = bill;
+  const next = { ...bill, nextDue: dueAfter(bill), lastPaid: date, paidAmount: paid, ...extra, undo: { ...before, txId: extra.createdTxId || null } };
+  delete next.createdTxId;
   if (bill.variable && paid > 0) {
     next.history = [...(bill.history || []), { date, amount: paid }].slice(-12);
     next.amount = billEstimate(next.history);
@@ -28,10 +31,20 @@ function advance(bill, paid, date, extra = {}) {
   db.put('bill', next);
 }
 
+// Put a bill back to how it was before it was last marked paid, removing
+// the transaction that marking it paid created (if it created one).
+function undoPaid(bill) {
+  const { txId, ...before } = bill.undo;
+  if (txId) db.remove(txId);
+  db.put('bill', before);
+  rerender();
+}
+
 function pay(bill) {
   const amount = Number(bill.amount) || 0;
+  let createdTxId = null;
   if (bill.record !== false && amount > 0) {
-    db.put('tx', {
+    createdTxId = db.put('tx', {
       date: today(),
       payee: bill.payTo ? `${bill.name} - ${bill.payTo}` : bill.name,
       amount: -amount,
@@ -40,7 +53,7 @@ function pay(bill) {
       created: Date.now(),
     });
   }
-  advance(bill, amount, today());
+  advance(bill, amount, today(), { createdTxId });
   rerender();
 }
 
@@ -136,7 +149,7 @@ function renderBill(bill, available, payment) {
     ),
     usual && h('div', { class: 'muted small' }, `Recent average ${money(usual)}.`),
     Number(bill.days) > 0 && amount > 0 && h('div', { class: 'muted small' }, `About ${money(billMonthly(bill))} a month.`),
-    short && h('div', { class: 'warn small' }, `Its envelope only has ${money(available)}.`),
+    short && h('div', {}, h('span', { class: 'badge' }, `Envelope has ${money(available)}`)),
     payment &&
       h(
         'div',
@@ -195,6 +208,46 @@ function renderCalendar() {
   ];
   const total = (list) => list.reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
 
+  // ---- Summary ----
+  const soon = bills.filter((b) => b.nextDue <= addDays(now, 7));
+  const overdue = bills.filter((b) => b.nextDue < now);
+  const perMonth = bills.reduce((sum, b) => sum + billMonthly(b), 0);
+  const summary =
+    bills.length > 0 &&
+    h(
+      'div',
+      { class: 'card left ' + (overdue.length ? 'over' : soon.length ? 'todo' : 'done') },
+      h('div', { class: 'muted small' }, 'Due in the next 7 days'),
+      h('div', { class: 'big' }, money(total(soon))),
+      h(
+        'p',
+        { class: 'small' },
+        [
+          overdue.length ? `${overdue.length} overdue. ` : '',
+          soon.length ? `${soon.length} bill${soon.length === 1 ? '' : 's'} to pay. ` : 'Nothing due this week. ',
+          `All ${bills.length} bills come to about ${money(perMonth)} a month.`,
+        ].join('')
+      )
+    );
+
+  // ---- Paid in the last two weeks, with a way to take it back ----
+  const recent = bills.filter((b) => b.undo && b.lastPaid && b.lastPaid >= addDays(now, -14)).sort((a, b) => (a.lastPaid < b.lastPaid ? 1 : -1));
+  const paid =
+    recent.length > 0 &&
+    h(
+      'details',
+      { class: 'card' },
+      h('summary', {}, 'Paid recently', h('span', { class: 'muted' }, ` ${recent.length}`)),
+      recent.map((b) =>
+        h(
+          'div',
+          { class: 'tx-line report-env' },
+          h('span', {}, b.name, h('span', { class: 'muted small' }, ` ${longDate(b.lastPaid)}${b.paidAmount > 0 ? ` · ${money(b.paidAmount)}` : ''}`)),
+          h('button', { class: 'link', onclick: () => { if (confirm(`Undo marking ${b.name} as paid?${b.undo.txId ? ' The transaction it added will be removed.' : ''}`)) undoPaid(b); } }, 'Undo')
+        )
+      )
+    );
+
   const cards = sections.map(([title, test]) => {
     const list = bills.filter(test);
     if (list.length === 0) return null;
@@ -225,8 +278,10 @@ function renderCalendar() {
   );
 
   return [
+    summary,
     bills.length === 0 && h('p', { class: 'empty' }, 'No bills yet. Add the ones that come around on a schedule.'),
     ...cards,
+    paid,
     addForm,
   ];
 }
