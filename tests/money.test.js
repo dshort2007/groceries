@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -234,4 +234,74 @@ test('bills can repeat every week or every two weeks', () => {
   const txs = [{ id: 't1', date: '2026-12-12', amount: -249.52, envelopeId: 'loan' }, { id: 't2', date: '2026-12-05', amount: -249.52, envelopeId: 'loan' }];
   assert.equal(findPayment(loan, txs, false).tx.id, 't2');
   assert.equal(findPayment(loan, [txs[0]], false), null);
+});
+
+test('finds every date something repeating falls on', () => {
+  assert.deepEqual(occurrences('2026-11-27', { days: 14 }, '2026-11-01', '2026-12-31'), ['2026-11-13', '2026-11-27', '2026-12-11', '2026-12-25']);
+  assert.deepEqual(occurrences('2026-12-01', { every: 1 }, '2026-12-01', '2027-02-15'), ['2026-12-01', '2027-01-01', '2027-02-01']);
+  assert.deepEqual(occurrences('2027-01-31', { every: 1, day: 31 }, '2027-02-01', '2027-03-31'), ['2027-02-28', '2027-03-31']);
+  assert.deepEqual(occurrences('2026-12-15', { every: 3 }, '2026-12-16', '2027-06-30'), ['2027-03-15', '2027-06-15']);
+  assert.deepEqual(occurrences('2026-12-15', { every: 1 }, '2026-10-01', '2026-11-30'), ['2026-10-15', '2026-11-15']);
+});
+
+test('lines bills up against paydays', () => {
+  const paychecks = [
+    { name: 'Church', amount: 2430.4, nextDate: '2026-11-27', days: 14 },
+    { name: 'Photography', amount: 1000, nextDate: '2026-12-11', every: 1 },
+  ];
+  const bills = [
+    { id: 'rent', name: 'Rent', amount: 2145, nextDue: '2026-12-01', every: 1 },
+    { id: 'loan', name: 'Loan', amount: 250, nextDue: '2026-12-04', days: 14 },
+    { id: 'late', name: 'Late one', amount: 40, nextDue: '2026-11-20', every: 1 },
+    { id: 'blank', name: 'No amount', amount: 0, nextDue: '2026-12-02', every: 1 },
+  ];
+  const plan = paycheckPlan(paychecks, bills, '2026-11-28', 42);
+  assert.deepEqual(plan.map((p) => [p.from, p.until, p.amount]), [
+    ['2026-11-27', '2026-12-10', 2430.4],
+    ['2026-12-11', '2026-12-24', 3430.4], // both land the same day
+    ['2026-12-25', '2027-01-07', 2430.4],
+    ['2027-01-08', '2027-01-09', 2430.4],
+  ]);
+  const first = plan[0];
+  assert.equal(first.current, true);
+  assert.deepEqual(first.bills.map((b) => [b.name, b.date, b.overdue]), [['Late one', '2026-11-20', true], ['Rent', '2026-12-01', false], ['Loan', '2026-12-04', false]]);
+  assert.equal(first.billsTotal, 2435);
+  assert.equal(first.left, -4.6);
+  assert.deepEqual(plan[1].bills.map((b) => b.name), ['Loan', 'Late one']); // Dec 18 and Dec 20
+  assert.deepEqual(plan[2].bills.map((b) => [b.name, b.date]), [['Rent', '2027-01-01'], ['Loan', '2027-01-01']]);
+  assert.deepEqual(paycheckPlan([], bills, '2026-11-28'), []);
+});
+
+test('works out what a savings goal needs each week', () => {
+  assert.equal(goalStatus({ amount: 0 }, 50, '2026-11-28'), null);
+  assert.deepEqual(goalStatus({ amount: 1000 }, 250, '2026-11-28'), { target: 1000, remaining: 750, share: 0.25, reached: false, perWeek: null, weeksLeft: null, late: false });
+  const dated = goalStatus({ amount: 1000, date: '2027-01-09' }, 250, '2026-11-28');
+  assert.equal(dated.weeksLeft, 6);
+  assert.equal(dated.perWeek, 125);
+  assert.equal(goalStatus({ amount: 1000, date: '2026-11-01' }, 250, '2026-11-28').late, true);
+  assert.equal(goalStatus({ amount: 1000, date: '2027-01-09' }, 1200, '2026-11-28').reached, true);
+  assert.equal(goalStatus({ amount: 1000 }, -40, '2026-11-28').remaining, 1000); // overspent counts as empty
+});
+
+test('reports income and spending by month, group and payee', () => {
+  assert.deepEqual(monthsEnding('2027-01', 3), ['2026-11', '2026-12', '2027-01']);
+  const envs = [{ id: 'groc', name: 'Groceries', group: 'Food' }, { id: 'out', name: 'Dining Out', group: 'Food' }, { id: 'gas', name: 'Gas', group: 'Car' }];
+  const txs = [
+    { date: '2026-10-05', amount: 2000, envelopeId: 'income', payee: 'Church' },
+    { date: '2026-10-07', amount: -100, envelopeId: 'groc', payee: 'Kroger' },
+    { date: '2026-11-03', amount: 2400, envelopeId: 'income', payee: 'Church' },
+    { date: '2026-11-04', amount: -150.25, envelopeId: 'groc', payee: 'Kroger' },
+    { date: '2026-11-06', amount: 20, envelopeId: 'groc', payee: 'Kroger' }, // refund
+    { date: '2026-11-08', amount: -90, envelopeId: 'split', payee: 'Walmart', splits: [{ envelopeId: 'groc', amount: -60 }, { envelopeId: 'gas', amount: -30 }] },
+    { date: '2026-11-09', amount: -500, envelopeId: 'transfer', payee: 'To savings' },
+    { date: '2026-11-10', amount: -12, envelopeId: '', payee: 'Mystery' },
+    { date: '2026-09-01', amount: -999, envelopeId: 'gas', payee: 'Old' },
+  ];
+  const r = monthlyReport(envs, txs, ['2026-10', '2026-11']);
+  assert.deepEqual(r.months, [{ month: '2026-10', income: 2000, spent: 100, net: 1900 }, { month: '2026-11', income: 2400, spent: 220.25, net: 2179.75 }]);
+  const food = r.groups.find((g) => g.name === 'Food');
+  assert.deepEqual(food.byMonth, { '2026-10': 100, '2026-11': 190.25 });
+  assert.deepEqual(food.envelopes[0], { id: 'groc', name: 'Groceries', byMonth: { '2026-10': 100, '2026-11': 190.25 } });
+  assert.deepEqual(r.groups.find((g) => g.name === 'Car').byMonth, { '2026-11': 30 });
+  assert.deepEqual(r.payees['2026-11'], [{ payee: 'Kroger', spent: 130.25 }, { payee: 'Walmart', spent: 90 }]);
 });

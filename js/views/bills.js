@@ -4,9 +4,11 @@
 import { h, money, num, numberField, rerender } from '../ui.js';
 import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment, billMonthly } from '../money.js';
 import { envelopeSelect, accountSelect } from './shared.js';
+import { renderPaychecks } from './paychecks.js';
 import * as db from '../db.js';
 
 let editingId = null;
+let mode = 'calendar'; // or 'paychecks'
 // How often a bill comes round. "d14" is every 14 days; "m3" every 3 months.
 const REPEATS = [['d7', 'Every week'], ['d14', 'Every 2 weeks'], ['m1', 'Every month'], ['m3', 'Every 3 months'], ['m6', 'Every 6 months'], ['m12', 'Every year']];
 const repeatOf = (bill) => (Number(bill.days) > 0 ? `d${bill.days}` : `m${bill.every || 1}`);
@@ -162,6 +164,15 @@ function renderBill(bill, available, payment) {
 }
 
 export function renderBills() {
+  const tabs = h(
+    'div',
+    { class: 'subtabs' },
+    [['calendar', 'By due date'], ['paychecks', 'By paycheck']].map(([id, label]) => h('button', { class: id === mode ? 'on' : null, onclick: () => { mode = id; rerender(); } }, label))
+  );
+  return [tabs, ...(mode === 'paychecks' ? renderPaychecks() : renderCalendar())];
+}
+
+function renderCalendar() {
   if (tidyNames(db.all('bill'))) rerender();
   const bills = db.all('bill').sort((a, b) => (a.nextDue < b.nextDue ? -1 : a.nextDue > b.nextDue ? 1 : 0));
   const now = today();

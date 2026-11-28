@@ -19,7 +19,8 @@ transactions, a debt payoff planner, and a grocery price planner.
   Accounts show a running balance you can check against the bank.
 - **Bills**: what's due this week and in the next 30 days, which account it
   comes from, and whether its envelope has enough in it. Marking a bill paid
-  records the transaction and moves it to its next due date. Bills whose
+  records the transaction and moves it to its next due date. A **By paycheck**
+  view lines bills up against paydays and shows what each paycheck has left. Bills whose
   amount changes (utilities) take this month's amount right on the row and
   estimate the next one from recent payments. When a matching payment shows
   up among your transactions, the bill offers to mark itself paid.
@@ -33,6 +34,8 @@ transactions, a debt payoff planner, and a grocery price planner.
   brand versus store brand, remembers how prices have moved, finds the
   cheapest plan across stores, and turns it into a checklist for shopping.
   Kroger-family stores can look prices up automatically.
+- **More > Reports**: income against spending for the last six months, where
+  the money went this month compared with usual, and the biggest payees.
 - **More > Side business**: log each job and see how it divides between the
   business, family savings and personal pay, by percentages you set.
 
@@ -81,6 +84,17 @@ Then use **Transactions > Bank connections** in the app.
    `supabase/functions/kroger/index.ts`, turn off "Verify JWT", and deploy.
 4. In the app: **More > Groceries > Stores**, open your Kroger store, and use
    "Look up prices from Kroger" to pick the location.
+
+## Reading receipts (optional)
+
+Lets the grocery list take prices from a photographed or pasted receipt. It
+uses the Claude API, which is billed per use to an Anthropic account.
+
+1. Create an API key at console.anthropic.com.
+2. **Supabase > Edge Functions > Secrets**: add `ANTHROPIC_API_KEY`.
+   Optionally add `RECEIPT_MODEL` to choose a different Claude model.
+3. **Supabase > Edge Functions**: create a function named `receipt`, paste in
+   `supabase/functions/receipt/index.ts`, turn off "Verify JWT", and deploy.
 
 ## Privacy
 

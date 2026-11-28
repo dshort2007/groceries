@@ -227,6 +227,134 @@ function renderLookup(item, store) {
   );
 }
 
+// ---------- Prices from a receipt ----------
+
+let receipt = null; // { storeId, busy, error, lines: [{ name, price, choice, ... }] }
+
+// Shrink a phone photo before sending it: receipts stay readable at this
+// size and it's far quicker to upload.
+async function photoToJpeg(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+}
+
+async function readReceipt(storeId, input) {
+  receipt = { storeId, busy: true };
+  rerender();
+  try {
+    const reply = await db.callFunction('receipt', { action: 'read', ...input, items: state.items.map((i) => ({ id: i.id, name: i.name })) });
+    if (!Array.isArray(reply?.lines)) throw new Error('The "receipt" function gave an unexpected reply. It may still contain sample code.');
+    // Each line starts out pointing at the list item it was matched to, or
+    // "skip" when there was no match, so nothing lands on the list by surprise.
+    receipt = { storeId, store: reply.store, date: reply.date, lines: reply.lines.map((l) => ({ ...l, choice: l.itemId || 'skip' })) };
+  } catch (err) {
+    receipt = { storeId, error: err.message };
+  }
+  rerender();
+}
+
+function saveReceipt() {
+  const store = state.stores.find((s) => s.id === receipt.storeId);
+  if (!store) return;
+  let saved = 0;
+  for (const line of receipt.lines) {
+    if (line.choice === 'skip' || !(Number(line.price) > 0)) continue;
+    let item = state.items.find((i) => i.id === line.choice);
+    if (line.choice === 'new') {
+      item = { id: newId(), name: line.name, qty: 1, unit: 'each', sort: Date.now() + saved };
+      state.items.push(item);
+    }
+    if (!item) continue;
+    const entry = ((state.prices[item.id] ??= {})[store.id] ??= {});
+    entry.price = Number(line.price);
+    delete entry.productId;
+    entry.updated = today();
+    logPrice(entry, 'n', entry.price);
+    saved++;
+  }
+  save();
+  notice = `Saved ${saved} price${saved === 1 ? '' : 's'} at ${store.name} from the receipt.`;
+  receipt = null;
+  rerender();
+}
+
+function renderReceipt() {
+  if (!db.ready) return null; // needs the server
+  const stores = state.stores.filter((s) => s.enabled !== false);
+  if (receipt?.lines) {
+    const store = stores.find((s) => s.id === receipt.storeId);
+    const picked = receipt.lines.filter((l) => l.choice !== 'skip').length;
+    return h(
+      'div',
+      { class: 'card' },
+      h('h2', {}, `Receipt from ${store?.name || 'store'}`),
+      h('p', { class: 'muted small' }, `${receipt.store ? `It says "${receipt.store}"${receipt.date ? `, ${receipt.date}` : ''}. ` : ''}Check each line: which list item it is, and the price for one. Anything left on "Skip" is ignored.`),
+      receipt.lines.length === 0 && h('p', { class: 'muted' }, 'No product lines were found on it.'),
+      receipt.lines.map((line) =>
+        h(
+          'div',
+          { class: 'tx' },
+          h('div', { class: 'tx-line' }, h('span', {}, line.name, h('span', { class: 'muted small' }, ` ${line.receiptText}${line.quantity > 1 ? ` · ${line.quantity} bought` : ''}`))),
+          h(
+            'div',
+            { class: 'split' },
+            h(
+              'select',
+              { 'aria-label': `What ${line.name} is on the list`, class: line.choice === 'skip' ? 'unfiled' : null, onchange: (e) => { line.choice = e.target.value; rerender(); } },
+              h('option', { value: 'skip', selected: line.choice === 'skip' }, 'Skip'),
+              state.items.map((i) => h('option', { value: i.id, selected: line.choice === i.id }, i.name)),
+              h('option', { value: 'new', selected: line.choice === 'new' }, 'Add to the list as new')
+            ),
+            h('input', { type: 'number', step: 'any', min: '0', inputMode: 'decimal', value: line.price, 'aria-label': 'Price for one', oninput: (e) => (line.price = num(e.target.value) ?? 0) }),
+            h('span', {})
+          )
+        )
+      ),
+      h(
+        'div',
+        { class: 'button-row' },
+        h('button', { class: 'primary', disabled: picked === 0, onclick: saveReceipt }, `Save ${picked} price${picked === 1 ? '' : 's'}`),
+        h('button', { onclick: () => { receipt = null; rerender(); } }, 'Cancel')
+      ),
+      h('p', { class: 'muted small' }, 'Prices go in as the name-brand price, per package. For items measured by size (oz, count), check the package size on the item afterwards.')
+    );
+  }
+
+  let storeId = receipt?.storeId || stores[0]?.id || '';
+  const text = h('textarea', { rows: 3, placeholder: 'Or paste the text of an emailed receipt here' });
+  return h(
+    'details',
+    { class: 'card', open: !!receipt || undefined },
+    h('summary', {}, 'Add prices from a receipt'),
+    h('p', { class: 'muted small' }, 'Take a photo of a receipt (or paste one from an email) and the app reads the prices off it. You check them before anything is saved.'),
+    h('label', { class: 'field' }, h('span', {}, 'Which store is it from?'), h('select', { onchange: (e) => (storeId = e.target.value) }, stores.map((s) => h('option', { value: s.id, selected: s.id === storeId }, s.name)))),
+    h('label', { class: 'field' }, h('span', {}, 'Photo of the receipt'), h('input', {
+      type: 'file',
+      accept: 'image/*',
+      disabled: receipt?.busy,
+      onchange: async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          await readReceipt(storeId, { image: await photoToJpeg(file) });
+        } catch (err) {
+          receipt = { storeId, error: "That photo couldn't be opened. Try another, or paste the text." };
+          rerender();
+        }
+      },
+    })),
+    text,
+    h('button', { disabled: receipt?.busy, onclick: () => text.value.trim() && readReceipt(storeId, { text: text.value.trim() }) }, 'Read the pasted text'),
+    receipt?.busy && h('p', {}, 'Reading the receipt… this can take up to half a minute.'),
+    receipt?.error && h('p', { class: 'warn small' }, receipt.error)
+  );
+}
+
 // ---------- List ----------
 
 function describeNeed(item) {
@@ -442,14 +570,13 @@ function renderList() {
     { class: 'muted small' },
     'Use "each" for things you buy by the package. For things that come in different sizes at different stores, pick a unit and say how much you need (24 count eggs, 32 oz cheese). The app works out how many packages that takes at each store.'
   );
-  const kroger =
-    krogerStores().length > 0 &&
-    h('div', { class: 'budget-tools' }, h('button', { class: 'link', onclick: refreshKroger }, 'Update Kroger prices'), notice && h('span', { class: 'muted small' }, notice));
+  const kroger = krogerStores().length > 0;
 
+  const tools = h('div', { class: 'budget-tools' }, kroger ? h('button', { class: 'link', onclick: refreshKroger }, 'Update Kroger prices') : h('span', {}), notice && h('span', { class: 'muted small' }, notice));
   if (state.items.length === 0) {
-    return [form, help, h('p', { class: 'empty' }, 'Your list is empty. Add your first item above.')];
+    return [form, help, renderReceipt(), notice && tools, h('p', { class: 'empty' }, 'Your list is empty. Add your first item above.')];
   }
-  return [form, help, kroger, ...state.items.map(renderItem)];
+  return [form, help, renderReceipt(), (kroger || notice) && tools, ...state.items.map(renderItem)];
 }
 
 // ---------- Shop ----------

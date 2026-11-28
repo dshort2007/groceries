@@ -3,12 +3,14 @@
 import { h, rerender } from '../ui.js';
 import { renderGroceries } from './groceries.js';
 import { renderSideJob, sideJobSettings } from './sidejob.js';
+import { renderReports } from './reports.js';
 
 let section = 'groceries';
 
 export function renderMore() {
   const sections = [
     ['groceries', 'Groceries', renderGroceries],
+    ['reports', 'Reports', renderReports],
     ['sidejob', sideJobSettings().name, renderSideJob],
   ];
   return [

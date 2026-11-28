@@ -1,7 +1,7 @@
 // The weekly envelope budget.
 
 import { h, money, num, numberField, rerender, goTo } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, monthlyTargets } from '../money.js';
+import { today, addDays, weekStart, budgetFor, monthlyTargets, goalStatus } from '../money.js';
 import * as db from '../db.js';
 
 let week = weekStart(today());
@@ -30,8 +30,8 @@ function saveOpenGroups(open) {
 const whole = (n) => '$' + Math.round(n).toLocaleString('en-US');
 
 // Nothing planned, nothing in it, nothing happening: not worth a row.
-const isQuiet = (row, target) =>
-  target.amount === 0 && Math.abs(row.available) < 0.005 && row.assigned === 0 && row.assignedMonth === 0 && row.spent === 0;
+const isQuiet = (row, target, e) =>
+  !(Number(e?.goalAmount) > 0) && target.amount === 0 && Math.abs(row.available) < 0.005 && row.assigned === 0 && row.assignedMonth === 0 && row.spent === 0;
 
 const STARTER = [
   ['Giving', ['Tithe']],
@@ -133,6 +133,9 @@ function renderEnvelope(e, row, target) {
       target.bills.length > 0
         ? h('label', { class: 'field' }, h('span', {}, 'Monthly target'), h('input', { type: 'text', value: money(target.amount), disabled: true, title: 'Set by the bills paid from this envelope. Change the bill to change this.' }))
         : numberField('Monthly target', e.plan || '', (v) => update('plan', v ?? 0), { key: `plan-${e.id}` }),
+      // Optional savings goal: an amount to build up to, and by when.
+      numberField('Goal amount', e.goalAmount || '', (v) => update('goalAmount', v ?? 0), { key: `goal-${e.id}`, placeholder: 'None' }),
+      h('label', { class: 'field' }, h('span', {}, 'Goal date'), h('input', { type: 'date', value: e.goalDate || '', data: { key: `goald-${e.id}` }, onchange: (ev) => update('goalDate', ev.target.value) })),
       h(
         'button',
         {
@@ -157,10 +160,24 @@ function renderEnvelope(e, row, target) {
     row.spent !== 0 && `Spent ${money(row.spent)}`,
     target.amount > 0 && `${whole(row.assignedMonth)} of ${whole(target.amount)}/mo`,
   ].filter(Boolean);
+  const goal = goalStatus({ amount: e.goalAmount, date: e.goalDate }, row.available, today());
+  if (goal) {
+    notes.push(
+      goal.reached
+        ? `Goal of ${whole(goal.target)} reached`
+        : `Goal ${whole(goal.target)}` + (goal.late ? ', past its date' : goal.perWeek ? `: ${money(goal.perWeek)} a week gets there by ${shortDate(e.goalDate)}` : `: ${whole(goal.remaining)} to go`)
+    );
+  }
   return h(
     'div',
     { class: 'envelope' },
-    h('div', { class: 'envelope-name' }, h('div', {}, e.name), notes.length > 0 && h('div', { class: 'muted small' }, notes.join(' · '))),
+    h(
+      'div',
+      { class: 'envelope-name' },
+      h('div', {}, e.name),
+      notes.length > 0 && h('div', { class: 'muted small' }, notes.join(' · ')),
+      goal && h('span', { class: 'meter', role: 'img', 'aria-label': `${Math.round(goal.share * 100)}% of the goal` }, h('span', { style: `width:${goal.share * 100}%` }))
+    ),
     h('input', {
       type: 'number',
       step: 'any',
@@ -257,7 +274,7 @@ export function renderBudget() {
   const open = openGroups();
   let quietCount = 0;
   const groups = [...grouped(envelopes)].map(([name, all]) => {
-    const quiet = all.filter((e) => isQuiet(budget.rows.get(e.id), targets.get(e.id)));
+    const quiet = all.filter((e) => isQuiet(budget.rows.get(e.id), targets.get(e.id), e));
     quietCount += quiet.length;
     // While editing, show everything so anything can be renamed or removed.
     const list = editing || showQuiet ? all : all.filter((e) => !quiet.includes(e));
@@ -332,7 +349,7 @@ export function renderBudget() {
           h('button', { class: 'link', onclick: () => { showQuiet = !showQuiet; rerender(); } }, showQuiet ? 'Hide unused envelopes' : `Show ${quietCount} unused`)
       ),
     ...groups,
-    editing && h('p', { class: 'muted small' }, 'Monthly target is optional: roughly what you mean to put in that envelope each month. If bills are paid from an envelope, its target is worked out from them (a $72 bill every 3 months counts as $24 a month) and is changed on the Bills tab. It moves no money. It only lets the app show how far along you are ("$200 of $440 this month") and where the gaps are on the Overview.'),
+    editing && h('p', { class: 'muted small' }, 'Monthly target is optional: roughly what you mean to put in that envelope each month. A goal is for saving up: set an amount (and a date if there is one) and the envelope shows how far along it is and what to set aside each week. If bills are paid from an envelope, its target is worked out from them (a $72 bill every 3 months counts as $24 a month) and is changed on the Bills tab. It moves no money. It only lets the app show how far along you are ("$200 of $440 this month") and where the gaps are on the Overview.'),
     h('datalist', { id: 'groups' }, [...grouped(envelopes).keys()].map((g) => h('option', { value: g }))),
     h(
       'div',

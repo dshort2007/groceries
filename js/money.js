@@ -402,3 +402,137 @@ export function payeeKey(payee) {
     .slice(0, 2)
     .join(' ');
 }
+
+// ---------- Repeating dates ----------
+
+// Every date something repeating lands on between `from` and `to`.
+// `first` is any one date it falls on; `repeat` is { days } (7 = weekly,
+// 14 = every two weeks) or { every, day } in months.
+export function occurrences(first, repeat, from, to) {
+  const out = [];
+  const days = Number(repeat.days) || 0;
+  let cur = first;
+  if (days > 0) {
+    const gap = Math.round((Date.parse(from) - Date.parse(first)) / 86400000);
+    cur = addDays(first, Math.ceil(gap / days) * days);
+    for (; cur <= to; cur = addDays(cur, days)) out.push(cur);
+    return out;
+  }
+  const every = Number(repeat.every) || 1;
+  const day = Number(repeat.day) || Number(first.slice(8));
+  while (cur > from) cur = addMonths(cur, -every, day);
+  while (cur < from) cur = addMonths(cur, every, day);
+  for (; cur <= to; cur = addMonths(cur, every, day)) out.push(cur);
+  return out;
+}
+
+// ---------- Paycheck planning ----------
+
+// Lines up bills against paydays: for each pay period (one payday up to the
+// day before the next), which bills fall due and what's left afterwards.
+// Starts with the period we're in now. Bills already overdue are put in
+// the current period, since that's the money that has to pay them.
+export function paycheckPlan(paychecks, bills, now, horizonDays = 42) {
+  const end = addDays(now, horizonDays);
+  const byDate = new Map();
+  for (const p of paychecks) {
+    if (!p.nextDate || !(Number(p.amount) > 0)) continue;
+    for (const date of occurrences(p.nextDate, p, addDays(now, -35), end)) {
+      const day = byDate.get(date) || byDate.set(date, { date, amount: 0, names: [] }).get(date);
+      day.amount += Number(p.amount);
+      day.names.push(p.name);
+    }
+  }
+  const paydays = [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+  if (paydays.length === 0) return [];
+  let start = 0;
+  paydays.forEach((p, i) => { if (p.date <= now) start = i; });
+
+  const periods = [];
+  for (let i = start; i < paydays.length; i++) {
+    const from = paydays[i].date;
+    const until = i + 1 < paydays.length ? addDays(paydays[i + 1].date, -1) : end;
+    const due = [];
+    for (const b of bills) {
+      const amount = Number(b.amount) || 0;
+      if (!b.nextDue || amount <= 0) continue;
+      if (i === start && b.nextDue < from) due.push({ id: b.id, name: b.name, amount, date: b.nextDue, overdue: b.nextDue < now });
+      for (const date of occurrences(b.nextDue, b, from, until)) {
+        if (date >= b.nextDue) due.push({ id: b.id, name: b.name, amount, date, overdue: date < now });
+      }
+    }
+    due.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const billsTotal = round2(due.reduce((sum, d) => sum + d.amount, 0));
+    periods.push({ from, until, amount: round2(paydays[i].amount), names: paydays[i].names, bills: due, billsTotal, left: round2(paydays[i].amount - billsTotal), current: i === start && from <= now });
+  }
+  return periods;
+}
+
+// ---------- Savings goals ----------
+
+// How an envelope is doing against a goal of { amount, date } (the date is
+// optional). With a date, says how much to set aside each week to make it.
+export function goalStatus(goal, available, now) {
+  const target = Number(goal?.amount) || 0;
+  if (target <= 0) return null;
+  const have = Math.max(0, Number(available) || 0);
+  const remaining = round2(Math.max(0, target - have));
+  const status = { target, remaining, share: Math.min(1, have / target), reached: remaining === 0, perWeek: null, weeksLeft: null, late: false };
+  if (goal.date && !status.reached) {
+    const days = Math.round((Date.parse(goal.date) - Date.parse(now)) / 86400000);
+    status.late = days < 0;
+    status.weeksLeft = Math.max(1, Math.ceil(days / 7));
+    status.perWeek = round2(remaining / status.weeksLeft);
+  }
+  return status;
+}
+
+// ---------- Reports ----------
+
+// The `count` months ending with `month`, oldest first: ["2026-09", ...].
+export function monthsEnding(month, count) {
+  return Array.from({ length: count }, (_, i) => addMonths(month + '-01', i - count + 1).slice(0, 7));
+}
+
+// Income and spending month by month, broken down by group and envelope,
+// plus where the money went (top payees). Refunds count against spending.
+// Transfers and anything not yet filed are left out.
+export function monthlyReport(envelopes, transactions, months) {
+  const wanted = new Set(months);
+  const envelope = new Map(envelopes.map((e) => [e.id, e]));
+  const totals = new Map(months.map((m) => [m, { month: m, income: 0, spent: 0 }]));
+  const groups = new Map();
+  const payees = new Map(months.map((m) => [m, new Map()]));
+
+  for (const t of transactions) {
+    const month = (t.date || '').slice(0, 7);
+    if (!wanted.has(month)) continue;
+    for (const p of parts(t)) {
+      if (p.envelopeId === 'income') {
+        totals.get(month).income += p.amount;
+        continue;
+      }
+      const e = envelope.get(p.envelopeId);
+      if (!e) continue;
+      const spent = -p.amount;
+      totals.get(month).spent += spent;
+      const groupName = e.group || 'Other';
+      const group = groups.get(groupName) || groups.set(groupName, { name: groupName, byMonth: {}, envelopes: new Map() }).get(groupName);
+      group.byMonth[month] = (group.byMonth[month] || 0) + spent;
+      const row = group.envelopes.get(e.id) || group.envelopes.set(e.id, { id: e.id, name: e.name, byMonth: {} }).get(e.id);
+      row.byMonth[month] = (row.byMonth[month] || 0) + spent;
+      const who = (t.payee || 'Unnamed').trim();
+      payees.get(month).set(who, (payees.get(month).get(who) || 0) + spent);
+    }
+  }
+
+  const tidy = (byMonth) => Object.fromEntries(Object.entries(byMonth).map(([m, v]) => [m, round2(v)]));
+  return {
+    months: months.map((m) => {
+      const t = totals.get(m);
+      return { month: m, income: round2(t.income), spent: round2(t.spent), net: round2(t.income - t.spent) };
+    }),
+    groups: [...groups.values()].map((g) => ({ name: g.name, byMonth: tidy(g.byMonth), envelopes: [...g.envelopes.values()].map((e) => ({ ...e, byMonth: tidy(e.byMonth) })) })),
+    payees: Object.fromEntries(months.map((m) => [m, [...payees.get(m)].map(([payee, spent]) => ({ payee, spent: round2(spent) })).filter((p) => p.spent > 0).sort((a, b) => b.spent - a.spent)])),
+  };
+}

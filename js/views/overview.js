@@ -3,7 +3,7 @@
 // tabs show; nothing is stored.
 
 import { h, icon, money, goTo } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly } from '../money.js';
+import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly, goalStatus } from '../money.js';
 import { bankSummary } from './bank.js';
 import { when, span, SETTINGS_ID, debtStrategy, planPayment } from './debts.js';
 import * as db from '../db.js';
@@ -187,6 +187,37 @@ function renderSpending(d) {
   );
 }
 
+// Savings goals and how far along each one is.
+function renderGoals(d) {
+  const goals = d.live
+    .map((e) => ({ e, g: goalStatus({ amount: e.goalAmount, date: e.goalDate }, d.budget.rows.get(e.id).available, d.now) }))
+    .filter((x) => x.g);
+  if (goals.length === 0) return null;
+  const by = (date) => new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  return h(
+    'div',
+    { class: 'card' },
+    h('h2', {}, 'Savings goals'),
+    h(
+      'div',
+      { class: 'meters' },
+      goals.map(({ e, g }) =>
+        h(
+          'button',
+          { class: 'goal', onclick: () => goTo('budget') },
+          h('div', { class: 'tx-line' }, h('strong', {}, e.name), h('span', {}, `${money(g.target - g.remaining)} of ${money(g.target)}`)),
+          h('span', { class: 'meter', role: 'img', 'aria-label': `${Math.round(g.share * 100)}% of the goal` }, h('span', { style: `width:${g.share * 100}%` })),
+          h(
+            'div',
+            { class: 'muted small' },
+            g.reached ? 'Reached.' : g.late ? `Past its date of ${by(e.goalDate)}, with ${money(g.remaining)} to go.` : g.perWeek ? `${money(g.perWeek)} a week gets there by ${by(e.goalDate)}.` : `${money(g.remaining)} to go.`
+          )
+        )
+      )
+    )
+  );
+}
+
 export function renderOverview() {
   const d = gather();
   const ends = looseEnds(d);
@@ -223,6 +254,7 @@ export function renderOverview() {
         ? h('p', { class: 'muted' }, 'Nothing needs your attention right now.')
         : ends.map((e) => h('button', { class: 'end', onclick: () => goTo(e.tab) }, h('span', { class: 'dot ' + e.level, 'aria-hidden': 'true' }), h('span', {}, e.text), h('span', { class: 'muted', 'aria-hidden': 'true' }, '›')))
     ),
+    renderGoals(d),
     renderSpending(d),
     ideas.length > 0 && h('div', { class: 'card' }, h('h2', {}, 'Worth a look'), h('ul', { class: 'ideas' }, ideas.map((text) => h('li', {}, text)))),
   ];

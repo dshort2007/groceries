@@ -568,3 +568,20 @@ button.link.plain { padding: 0; text-align: left; color: inherit; text-decoratio
 .shop-row input { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
 .shop-row.got .shop-name, .item-name.got { text-decoration: line-through; color: var(--muted); }
 .subtabs button { white-space: nowrap; }
+
+/* ---------- Reports, paychecks, goals ---------- */
+.report th.right, .report td.right { font-variant-numeric: tabular-nums; }
+.report-group { border-top: 1px solid var(--line); padding: 10px 0; }
+.report-group > summary { display: flex; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.report-group > summary::-webkit-details-marker { display: none; }
+.report-group .meter { margin: 6px 0 2px; }
+.report-env { padding: 5px 0; font-size: 0.95rem; }
+.report-group .report-env { padding-left: 12px; }
+.pay-totals { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; display: grid; gap: 4px; }
+.goal { display: grid; gap: 4px; width: 100%; text-align: left; border: none; background: none; padding: 0; border-radius: 0; }
+.envelope-name .meter { margin-top: 4px; max-width: 220px; }
+details.group .envelope.editing { grid-template-columns: 1fr 1fr 110px 110px 130px auto; }
+@media (max-width: 720px) { details.group .envelope.editing { grid-template-columns: 1fr 1fr; } }
+
+textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 11px; background: var(--field); font: inherit; color: inherit; resize: vertical; }
+details.card > label.field, details.card > textarea, details.card > button { margin-top: 8px; }
