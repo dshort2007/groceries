@@ -6,8 +6,10 @@ import { today, paycheckPlan } from '../money.js';
 import * as db from '../db.js';
 
 let editing = false;
-const REPEATS = [['d7', 'Every week'], ['d14', 'Every 2 weeks'], ['m1', 'Every month']];
-const repeatOf = (p) => (Number(p.days) > 0 ? `d${p.days}` : 'm1');
+const REPEATS = [['d7', 'Every week'], ['d14', 'Every 2 weeks'], ['m1', 'Same date every month'], ['last', 'Last day of each month'], ['semi', 'The 15th and the last day']];
+const repeatOf = (p) => (p.monthDays?.length === 2 ? 'semi' : p.monthDays?.length === 1 ? 'last' : Number(p.days) > 0 ? `d${p.days}` : 'm1');
+const repeatChange = (code) =>
+  code === 'semi' ? { days: 0, monthDays: [15, 31] } : code === 'last' ? { days: 0, monthDays: [31] } : code[0] === 'd' ? { days: Number(code.slice(1)), monthDays: null } : { days: 0, every: 1, monthDays: null };
 const day = (date) => new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 function renderPaydays(paychecks) {
@@ -31,8 +33,16 @@ function renderPaydays(paychecks) {
         h(
           'div',
           { class: 'fields wrap' },
-          h('label', { class: 'field' }, h('span', {}, 'A date it gets paid'), h('input', { type: 'date', value: p.nextDate, onchange: (e) => e.target.value && update({ nextDate: e.target.value, day: Number(e.target.value.slice(8)) }) })),
-          h('label', { class: 'field' }, h('span', {}, 'Repeats'), h('select', { onchange: (e) => update(e.target.value[0] === 'd' ? { days: Number(e.target.value.slice(1)) } : { days: 0, every: 1 }) }, REPEATS.map(([code, label]) => h('option', { value: code, selected: code === repeatOf(p) }, label))))
+          h('label', { class: 'field' }, h('span', {}, 'Paid'), h('select', { onchange: (e) => update(repeatChange(e.target.value)) }, REPEATS.map(([code, label]) => h('option', { value: code, selected: code === repeatOf(p) }, label)))),
+          // Fixed days of the month need no example date; the others do.
+          !p.monthDays?.length &&
+            h('label', { class: 'field' }, h('span', {}, 'A date it gets paid'), h('input', { type: 'date', value: p.nextDate || '', onchange: (e) => e.target.value && update({ nextDate: e.target.value, day: Number(e.target.value.slice(8)) }) }))
+        ),
+        h(
+          'div',
+          { class: 'fields wrap' },
+          h('label', { class: 'field' }, h('span', {}, 'First payday (optional)'), h('input', { type: 'date', value: p.starts || '', onchange: (e) => update({ starts: e.target.value }) })),
+          h('label', { class: 'field' }, h('span', {}, 'Last payday (optional)'), h('input', { type: 'date', value: p.ends || '', onchange: (e) => update({ ends: e.target.value }) }))
         ),
         h('button', { class: 'link danger', onclick: () => { if (confirm(`Remove ${p.name}?`)) { db.remove(p.id); rerender(); } } }, 'Remove')
       );
@@ -53,7 +63,7 @@ function renderPaydays(paychecks) {
       date,
       h('button', { type: 'submit', class: 'primary' }, 'Add')
     ),
-    h('p', { class: 'muted small' }, 'Any one payday is enough; the app works out the rest from how often it repeats. Paid twice a month, on the 1st and 15th say? Add it as two monthly paychecks.')
+    h('p', { class: 'muted small' }, 'Any one payday is enough; the app works out the rest from how often it repeats. If your pay schedule is changing, give the current paycheck a last payday and add the new one with a first payday. Paid on two other fixed dates, the 1st and 15th say? Add it as two monthly paychecks.')
   );
 }
 

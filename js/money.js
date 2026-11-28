@@ -147,6 +147,10 @@ export function splitJob(total, percents) {
 // 3, 6 or 12 months, or every so many days (7 = weekly, 14 = every two
 // weeks). Paying it moves the due date forward.
 export function dueAfter(bill) {
+  if (bill.monthDays?.length) {
+    const next = addDays(bill.nextDue, 1);
+    return occurrences(next, bill, next, addDays(next, 62))[0];
+  }
   if (Number(bill.days) > 0) return addDays(bill.nextDue, Number(bill.days));
   return addMonths(bill.nextDue, Number(bill.every) || 1, Number(bill.day) || Number(bill.nextDue.slice(8)));
 }
@@ -155,6 +159,7 @@ export function dueAfter(bill) {
 // a year, so it costs a little more than two payments a month.
 export function billMonthly(bill) {
   const amount = Number(bill.amount) || 0;
+  if (bill.monthDays?.length) return round2(amount * bill.monthDays.length);
   if (Number(bill.days) > 0) return round2((amount * (364 / Number(bill.days))) / 12); // 364 days = 52 weeks
   return round2(amount / (Number(bill.every) || 1));
 }
@@ -179,7 +184,7 @@ export function findPayment(bill, transactions, sharesEnvelope) {
     const gap = Math.abs(Date.parse(t.date) - Date.parse(bill.nextDue)) / 86400000;
     // Ten days either side, or less for a bill that comes round more often
     // than that, so one period's payment isn't taken for the next.
-    const reach = Number(bill.days) > 0 ? Math.min(10, Math.floor(Number(bill.days) / 2) - 1) : 10;
+    const reach = bill.monthDays?.length > 1 ? 6 : Number(bill.days) > 0 ? Math.min(10, Math.floor(Number(bill.days) / 2) - 1) : 10;
     if (gap > reach) continue;
     const paid = -parts(t).filter((p) => p.envelopeId === bill.envelopeId).reduce((sum, p) => sum + p.amount, 0);
     if (!(paid > 0)) continue;
@@ -407,9 +412,22 @@ export function payeeKey(payee) {
 
 // Every date something repeating lands on between `from` and `to`.
 // `first` is any one date it falls on; `repeat` is { days } (7 = weekly,
-// 14 = every two weeks) or { every, day } in months.
+// 14 = every two weeks), { every, day } in months, or { monthDays } for
+// fixed days of every month.
 export function occurrences(first, repeat, from, to) {
   const out = [];
+  // Fixed days of the month, such as the 15th and the last day. A day past
+  // the end of a month (31 in February) means its last day.
+  if (Array.isArray(repeat.monthDays) && repeat.monthDays.length > 0) {
+    const daysOfMonth = [...repeat.monthDays].sort((a, b) => a - b);
+    for (let month = from.slice(0, 7); month <= to.slice(0, 7); month = addMonths(month + '-01', 1).slice(0, 7)) {
+      for (const d of daysOfMonth) {
+        const date = addMonths(month + '-01', 0, d);
+        if (date >= from && date <= to && !out.includes(date)) out.push(date);
+      }
+    }
+    return out;
+  }
   const days = Number(repeat.days) || 0;
   let cur = first;
   if (days > 0) {
@@ -436,8 +454,11 @@ export function paycheckPlan(paychecks, bills, now, horizonDays = 42) {
   const end = addDays(now, horizonDays);
   const byDate = new Map();
   for (const p of paychecks) {
-    if (!p.nextDate || !(Number(p.amount) > 0)) continue;
-    for (const date of occurrences(p.nextDate, p, addDays(now, -35), end)) {
+    if (!(Number(p.amount) > 0) || (!p.nextDate && !p.monthDays?.length)) continue;
+    for (const date of occurrences(p.nextDate || now, p, addDays(now, -35), end)) {
+      // A paycheck can have a first and a last payday, for when a pay
+      // schedule changes: end the old one and start the new one.
+      if ((p.starts && date < p.starts) || (p.ends && date > p.ends)) continue;
       const day = byDate.get(date) || byDate.set(date, { date, amount: 0, names: [] }).get(date);
       day.amount += Number(p.amount);
       day.names.push(p.name);

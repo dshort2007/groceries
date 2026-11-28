@@ -305,3 +305,33 @@ test('reports income and spending by month, group and payee', () => {
   assert.deepEqual(r.groups.find((g) => g.name === 'Car').byMonth, { '2026-11': 30 });
   assert.deepEqual(r.payees['2026-11'], [{ payee: 'Kroger', spent: 130.25 }, { payee: 'Walmart', spent: 90 }]);
 });
+
+test('pay and bills can fall on fixed days such as the 15th and the last day', () => {
+  const twice = { monthDays: [15, 31] };
+  assert.deepEqual(occurrences('2027-01-01', twice, '2027-01-20', '2027-03-16'), ['2027-01-31', '2027-02-15', '2027-02-28', '2027-03-15']);
+  assert.deepEqual(occurrences('2027-01-01', { monthDays: [31] }, '2027-02-01', '2027-04-30'), ['2027-02-28', '2027-03-31', '2027-04-30']);
+  assert.deepEqual(occurrences('2028-01-01', { monthDays: [31] }, '2028-02-01', '2028-02-29'), ['2028-02-29']); // leap year
+
+  const loan = { nextDue: '2027-01-15', amount: 250, monthDays: [15, 31] };
+  assert.equal(dueAfter(loan), '2027-01-31');
+  assert.equal(dueAfter({ ...loan, nextDue: '2027-01-31' }), '2027-02-15');
+  assert.equal(dueAfter({ ...loan, nextDue: '2027-02-15' }), '2027-02-28');
+  assert.equal(billMonthly(loan), 500);
+});
+
+test('a pay schedule can end and a new one begin', () => {
+  const paychecks = [
+    { name: 'Old', amount: 2430.4, nextDate: '2026-11-27', days: 14, ends: '2026-12-31' },
+    { name: 'New', amount: 2600, monthDays: [15, 31], starts: '2027-01-01' },
+    { name: 'Hers', amount: 1020, monthDays: [31] },
+  ];
+  const plan = paycheckPlan(paychecks, [{ id: 'rent', name: 'Rent', amount: 2145, nextDue: '2027-01-01', every: 1 }], '2026-12-20', 50);
+  assert.deepEqual(plan.map((p) => [p.from, p.amount, p.names.join('+')]), [
+    ['2026-12-11', 2430.4, 'Old'],
+    ['2026-12-25', 2430.4, 'Old'],
+    ['2026-12-31', 1020, 'Hers'],
+    ['2027-01-15', 2600, 'New'],
+    ['2027-01-31', 3620, 'New+Hers'],
+  ]);
+  assert.deepEqual(plan[2].bills.map((b) => b.name), ['Rent']); // her month-end pay covers rent on the 1st
+});

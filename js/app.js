@@ -161,4 +161,16 @@ window.addEventListener('focus', check);
 // Leaving the page (or locking the phone): upload right away.
 document.addEventListener('visibilitychange', () => (document.hidden ? open && db.sync() : check()));
 
+// Tapping anywhere on a date box opens the calendar, not just the small
+// icon at its edge.
+document.addEventListener('click', (e) => {
+  if (e.target instanceof HTMLInputElement && e.target.type === 'date' && !e.target.disabled) {
+    try {
+      e.target.showPicker();
+    } catch {
+      // Older browsers: the box still works by typing.
+    }
+  }
+});
+
 start();

@@ -93,10 +93,11 @@ function renderDebt(d, info) {
     // monthly minimum. A loan paid every two weeks is half the minimum each
     // time, and that's fine.
     const monthly = billMonthly(bill);
-    const often = Number(bill.days) > 0;
+    const perMonth = bill.monthDays?.length || (Number(bill.days) > 0 ? 364 / Number(bill.days) / 12 : 0);
+    const often = perMonth > 0;
     const low = monthly < min - 0.004;
     // The per-payment amount that would exactly meet the minimum.
-    const perPayment = often ? Math.ceil(((min * 12) / (364 / Number(bill.days))) * 100) / 100 : min * (Number(bill.every) || 1);
+    const perPayment = often ? Math.ceil((min / perMonth) * 100) / 100 : min * (Number(bill.every) || 1);
     payment = h(
       'div',
       { class: 'debt-bill' },

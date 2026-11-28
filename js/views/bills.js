@@ -10,9 +10,10 @@ import * as db from '../db.js';
 let editingId = null;
 let mode = 'calendar'; // or 'paychecks'
 // How often a bill comes round. "d14" is every 14 days; "m3" every 3 months.
-const REPEATS = [['d7', 'Every week'], ['d14', 'Every 2 weeks'], ['m1', 'Every month'], ['m3', 'Every 3 months'], ['m6', 'Every 6 months'], ['m12', 'Every year']];
-const repeatOf = (bill) => (Number(bill.days) > 0 ? `d${bill.days}` : `m${bill.every || 1}`);
-const repeatChange = (code) => (code[0] === 'd' ? { days: Number(code.slice(1)) } : { days: 0, every: Number(code.slice(1)) });
+const REPEATS = [['d7', 'Every week'], ['d14', 'Every 2 weeks'], ['semi', 'The 15th and the last day'], ['m1', 'Every month'], ['m3', 'Every 3 months'], ['m6', 'Every 6 months'], ['m12', 'Every year']];
+const repeatOf = (bill) => (bill.monthDays?.length ? 'semi' : Number(bill.days) > 0 ? `d${bill.days}` : `m${bill.every || 1}`);
+const repeatChange = (code) =>
+  code === 'semi' ? { days: 0, monthDays: [15, 31] } : code[0] === 'd' ? { days: Number(code.slice(1)), monthDays: null } : { days: 0, every: Number(code.slice(1)), monthDays: null };
 
 const longDate = (date) =>
   new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
@@ -148,7 +149,7 @@ function renderBill(bill, available, payment) {
         : h('strong', {}, amount > 0 ? money(amount) : h('span', { class: 'muted' }, 'No amount'))
     ),
     usual && h('div', { class: 'muted small' }, `Recent average ${money(usual)}.`),
-    Number(bill.days) > 0 && amount > 0 && h('div', { class: 'muted small' }, `About ${money(billMonthly(bill))} a month.`),
+    (Number(bill.days) > 0 || bill.monthDays?.length > 0) && amount > 0 && h('div', { class: 'muted small' }, `About ${money(billMonthly(bill))} a month.`),
     short && h('div', {}, h('span', { class: 'badge' }, `Envelope has ${money(available)}`)),
     payment &&
       h(

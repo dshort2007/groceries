@@ -211,7 +211,8 @@ export function renderBudget() {
     h(
       'div',
       {},
-      h('strong', {}, `${shortDate(week)} – ${shortDate(addDays(week, 6))}`),
+      // Tap the dates to jump to the week containing any day.
+      h('label', { class: 'jump', title: 'Jump to a date' }, h('strong', {}, `${shortDate(week)} – ${shortDate(addDays(week, 6))}`), h('input', { type: 'date', value: week, 'aria-label': 'Jump to the week containing a date', onchange: (ev) => { if (ev.target.value) { week = weekStart(ev.target.value); rerender(); } } })),
       week !== weekStart(today()) &&
         h('button', { class: 'link', onclick: () => { week = weekStart(today()); rerender(); } }, 'This week')
     ),
