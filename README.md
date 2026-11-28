@@ -100,6 +100,19 @@ uses the Claude API, which is billed per use to an Anthropic account.
 3. **Supabase > Edge Functions**: create a function named `receipt`, paste in
    `supabase/functions/receipt/index.ts`, turn off "Verify JWT", and deploy.
 
+## Notifications (optional)
+
+Sends each device one notification a morning when bills are due or an
+envelope is overspent. On an iPhone or iPad the app must be added to the home
+screen first (Share > Add to Home Screen).
+
+1. **Supabase > Edge Functions**: create a function named `notify`, paste in
+   `supabase/functions/notify/index.ts`, turn off "Verify JWT", and deploy.
+2. **Supabase SQL Editor**: run `supabase/setup-notify.sql`. It creates a
+   locked table for the notification keys and a daily timer.
+3. In the app on each device: **More > Alerts > Turn on notifications**, then
+   **Send a test**.
+
 ## Privacy
 
 This repository is public, and that's fine: it holds only the app's code. All

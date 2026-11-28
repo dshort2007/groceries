@@ -614,3 +614,7 @@ input[type="date"] { cursor: pointer; }
 
 /* ---------- Bills sorting, backup ---------- */
 .sort-pick select { width: auto; }
+
+/* The More tab now has several sections: let them wrap onto two rows. */
+.subtabs.sections { flex-wrap: wrap; }
+.subtabs.sections button { flex: 1 1 30%; }

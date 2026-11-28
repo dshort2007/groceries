@@ -28,3 +28,37 @@ function checkAgainNextTime(response) {
   headers.set('Cache-Control', 'no-cache');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
+
+// ---------- Notifications ----------
+
+// A notification has arrived from the server: show it.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data.json();
+  } catch {
+    data = { body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Family Budget', {
+      body: data.body || '',
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      data: { url: data.url || './' },
+    })
+  );
+});
+
+// Tapping it brings the app forward, or opens it.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of windows) {
+        if ('focus' in client) return client.focus();
+      }
+      return self.clients.openWindow(event.notification.data?.url || './');
+    })()
+  );
+});

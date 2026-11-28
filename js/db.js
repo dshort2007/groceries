@@ -200,6 +200,7 @@ export function importAll(list) {
 
 // Who is signed in on this device (null when running without sign-in).
 export const userId = () => user?.id ?? null;
+export const userEmail = () => user?.email ?? '';
 
 // ---------- Signing in ----------
 
