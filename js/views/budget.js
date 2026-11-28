@@ -28,9 +28,6 @@ function saveOpenGroups(open) {
   }
 }
 
-// Whole dollars, for the small print where cents are just clutter.
-const whole = (n) => '$' + Math.round(n).toLocaleString('en-US');
-
 // Nothing planned, nothing in it, nothing happening: not worth a row.
 const isQuiet = (row, target, e) =>
   !(Number(e?.goalAmount) > 0) && target.amount === 0 && Math.abs(row.available) < 0.005 && row.assigned === 0 && row.assignedMonth === 0 && row.spent === 0;
@@ -163,14 +160,14 @@ function renderEnvelope(e, row, target) {
   // something to say.
   const notes = [
     row.spent !== 0 && `Spent ${money(row.spent)}`,
-    target.amount > 0 && (budgetMode() === 'month' ? `Target ${whole(target.amount)}` : `${whole(row.assignedMonth)} of ${whole(target.amount)}/mo`),
+    target.amount > 0 && (budgetMode() === 'month' ? `Target ${money(target.amount)}` : `${money(row.assignedMonth)} of ${money(target.amount)}/mo`),
   ].filter(Boolean);
   const goal = goalStatus({ amount: e.goalAmount, date: e.goalDate }, row.available, today());
   if (goal) {
     notes.push(
       goal.reached
-        ? `Goal of ${whole(goal.target)} reached`
-        : `Goal ${whole(goal.target)}` + (goal.late ? ', past its date' : goal.perWeek ? `: ${budgetMode() === 'month' ? `${money(goal.perMonth)} a month` : `${money(goal.perWeek)} a week`} gets there by ${shortDate(e.goalDate)}` : `: ${whole(goal.remaining)} to go`)
+        ? `Goal of ${money(goal.target)} reached`
+        : `Goal ${money(goal.target)}` + (goal.late ? ', past its date' : goal.perWeek ? `: ${budgetMode() === 'month' ? `${money(goal.perMonth)} a month` : `${money(goal.perWeek)} a week`} gets there by ${shortDate(e.goalDate)}` : `: ${money(goal.remaining)} to go`)
     );
   }
   return h(
