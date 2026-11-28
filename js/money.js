@@ -679,3 +679,33 @@ export function netWorth(accounts, transactions, debts) {
   const owed = round2(debts.reduce((sum, d) => sum + debtStatus(d, transactions).balance, 0));
   return { cash, owed, net: round2(cash - owed) };
 }
+
+// ---------- Income that's expected but hasn't arrived ----------
+
+// Paychecks due between `from` and `to` that haven't come in yet. A payday
+// in the last few days counts as arrived once there's an income
+// transaction of about the right size near it; until then it's still
+// expected. Paydays more than three days past with nothing to show are
+// dropped, so a missed or renamed deposit doesn't sit here for ever.
+export function expectedIncome(paychecks, transactions, from, to, now) {
+  const income = transactions.filter((t) => t.envelopeId === 'income' && t.amount > 0);
+  const used = new Set();
+  const out = [];
+  const earliest = addDays(now, -3) > from ? addDays(now, -3) : from;
+  for (const p of paychecks) {
+    const amount = Number(p.amount) || 0;
+    if (amount <= 0 || (!p.nextDate && !p.monthDays?.length)) continue;
+    for (const date of occurrences(p.nextDate || now, p, earliest, to)) {
+      if ((p.starts && date < p.starts) || (p.ends && date > p.ends)) continue;
+      if (date <= now) {
+        const arrived = income.find((t) => !used.has(t.id) && Math.abs(Date.parse(t.date) - Date.parse(date)) <= 3 * 86400000 && Math.abs(t.amount - amount) <= amount * 0.1);
+        if (arrived) {
+          used.add(arrived.id);
+          continue;
+        }
+      }
+      out.push({ date, name: p.name, amount: round2(amount) });
+    }
+  }
+  return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}

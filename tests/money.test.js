@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf, suggestBills, priceChanges, netWorth } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf, suggestBills, priceChanges, netWorth, expectedIncome } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -407,4 +407,34 @@ test('net worth is cash in accounts minus what is owed', () => {
   const txs = [{ date: '2026-11-10', accountId: 'chk', amount: -200, envelopeId: 'loan' }, { date: '2026-11-11', accountId: 'card', amount: -50, envelopeId: 'groc' }];
   const debts = [{ balance: 5000, asOf: '2026-11-01', envelopeId: 'loan' }, { balance: 400 }];
   assert.deepEqual(netWorth(accounts, txs, debts), { cash: 1050, owed: 5200, net: -4150 });
+});
+
+test('counts pay that is expected but has not arrived yet', () => {
+  const paychecks = [
+    { name: 'Church', amount: 2430.4, nextDate: '2026-11-27', days: 14 },
+    { name: 'Schools', amount: 1020, monthDays: [31] },
+    { name: 'Next year', amount: 2600, monthDays: [15, 31], starts: '2027-01-01' },
+    { name: 'No amount', amount: 0, nextDate: '2026-12-01', days: 7 },
+  ];
+  // Looking at December on Dec 10, with nothing received yet this month.
+  assert.deepEqual(expectedIncome(paychecks, [], '2026-12-01', '2026-12-31', '2026-12-10'), [
+    { date: '2026-12-11', name: 'Church', amount: 2430.4 },
+    { date: '2026-12-25', name: 'Church', amount: 2430.4 },
+    { date: '2026-12-31', name: 'Schools', amount: 1020 },
+  ]);
+
+  // On payday itself it's still expected until the deposit shows up...
+  assert.equal(expectedIncome(paychecks, [], '2026-12-01', '2026-12-31', '2026-12-11').length, 3);
+  // ...and once it has (a day late, a few cents different), it no longer is.
+  const deposit = { id: 'd1', date: '2026-12-12', amount: 2430.32, envelopeId: 'income' };
+  assert.deepEqual(expectedIncome(paychecks, [deposit], '2026-12-01', '2026-12-31', '2026-12-12').map((e) => e.date), ['2026-12-25', '2026-12-31']);
+  // One deposit only answers for one payday.
+  const two = [{ name: 'A', amount: 500, nextDate: '2026-12-11', days: 14 }, { name: 'B', amount: 500, nextDate: '2026-12-11', days: 14 }];
+  assert.equal(expectedIncome(two, [{ id: 'x', date: '2026-12-11', amount: 500, envelopeId: 'income' }], '2026-12-01', '2026-12-20', '2026-12-11').length, 1);
+  // A deposit that isn't filed as income yet doesn't count as arrived.
+  assert.equal(expectedIncome(paychecks, [{ ...deposit, envelopeId: '' }], '2026-12-01', '2026-12-31', '2026-12-12').length, 3);
+  // A payday well past with nothing to show for it is dropped, not carried.
+  assert.deepEqual(expectedIncome(paychecks, [], '2026-12-01', '2026-12-31', '2026-12-20').map((e) => e.date), ['2026-12-25', '2026-12-31']);
+  // A week with no payday in it expects nothing.
+  assert.deepEqual(expectedIncome(paychecks, [], '2026-12-04', '2026-12-10', '2026-12-04'), []);
 });

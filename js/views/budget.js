@@ -1,7 +1,7 @@
 // The weekly envelope budget.
 
 import { h, money, num, numberField, rerender, goTo } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, monthlyTargets, goalStatus } from '../money.js';
+import { today, addDays, weekStart, budgetFor, monthlyTargets, goalStatus, expectedIncome } from '../money.js';
 import { budgetMode, setBudgetMode, budgetPeriod } from './shared.js';
 import * as db from '../db.js';
 
@@ -229,20 +229,46 @@ const monthly = budgetMode() === 'month';
 
   const incomeAmount = h('input', { type: 'number', step: 'any', min: '0', inputMode: 'decimal', placeholder: 'Amount', required: true });
   const incomeFrom = h('input', { type: 'text', placeholder: 'From, e.g. Paycheck', required: true });
+  // Pay that's due before this period ends but hasn't arrived. It's shown
+  // beside what you have, never mixed into it: you can plan with it, but
+  // it isn't spendable until it lands.
+  const paydays = db.all('paycheck');
+  // Count pay due up to the end of the furthest week or month that has
+  // money assigned to it, since those assignments are waiting on it too.
+  const lastAssigned = db.all('assign').filter((a) => Number(a.amount) > 0).reduce((max, a) => (a.week > max ? a.week : max), '');
+  const horizon = lastAssigned && budgetPeriod(lastAssigned).end > periodEnd ? budgetPeriod(lastAssigned).end : periodEnd;
+  const expected = expectedIncome(paydays, db.all('tx'), week, horizon, today());
+  const coming = expected.reduce((sum, e) => sum + e.amount, 0);
+  const afterPay = Math.round((left + coming) * 100) / 100;
+  const planningAhead = left < -0.004 && coming > 0;
+  const tone = left > 0.004 ? 'todo' : left >= -0.004 ? 'done' : planningAhead && afterPay >= -0.004 ? 'ahead' : 'over';
   const summary = h(
     'div',
-    { class: 'card left ' + (left < -0.004 ? 'over' : left > 0.004 ? 'todo' : 'done') },
+    { class: 'card left ' + tone },
     h('div', { class: 'muted small' }, 'Left to assign'),
     h('div', { class: 'big' }, money(left)),
     h(
       'p',
       { class: 'small' },
-      left < -0.004
-        ? "You've assigned more than you have. Take some back out of an envelope."
-        : left > 0.004
-          ? 'Give every dollar a job: keep assigning until this reaches $0.00.'
-          : 'Every dollar has a job.'
+      tone === 'ahead'
+        ? "You've planned ahead of your pay. That's fine for planning; the money isn't there to spend until it arrives."
+        : tone === 'over'
+          ? planningAhead
+            ? "Even with the pay that's expected, you've assigned more than you'll have. Take some back out of an envelope."
+            : "You've assigned more than you have. Take some back out of an envelope."
+          : tone === 'todo'
+            ? 'Give every dollar a job: keep assigning until this reaches $0.00.'
+            : 'Every dollar has a job.'
     ),
+    coming > 0 &&
+      h(
+        'div',
+        { class: 'expected' },
+        h('div', { class: 'tx-line' }, h('span', {}, `Expected by ${shortDate(horizon)}`), h('strong', {}, money(coming))),
+        expected.map((e) => h('div', { class: 'tx-line muted small' }, h('span', {}, `${e.name}, ${shortDate(e.date)}`), h('span', {}, money(e.amount)))),
+        h('div', { class: 'tx-line' }, h('span', {}, 'Left to plan once it arrives'), h('strong', { class: afterPay < -0.004 ? 'neg' : null }, money(afterPay)))
+      ),
+    left < -0.004 && paydays.length === 0 && h('p', { class: 'muted small' }, 'Planning before payday? Add your paydays under Bills, By paycheck, and expected pay will show here.'),
     incomeOpen
       ? h(
           'form',

@@ -3,7 +3,7 @@
 // tabs show; nothing is stored.
 
 import { h, icon, money, goTo } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly, goalStatus, suggestBills, priceChanges } from '../money.js';
+import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly, goalStatus, suggestBills, priceChanges, expectedIncome } from '../money.js';
 import { bankSummary } from './bank.js';
 import { budgetPeriod } from './shared.js';
 import { when, span, SETTINGS_ID, debtStrategy, planPayment } from './debts.js';
@@ -69,7 +69,7 @@ function gather() {
     for (const p of parts(t)) if (groupOf.has(p.envelopeId)) group(groupOf.get(p.envelopeId)).spent -= p.amount;
   }
 
-  return { now, month, live, txs, accounts, budget, cash, cardsOwed, bills, overdue, dueSoon, shortEnvelopes, debts, owing, extra, groups: [...groups.values()], sum };
+  return { periodStart: week, periodEnd, periodWord: periodEnd > addDays(week, 7) ? 'month' : 'week', now, month, live, txs, accounts, budget, cash, cardsOwed, bills, overdue, dueSoon, shortEnvelopes, debts, owing, extra, groups: [...groups.values()], sum };
 }
 
 // Things that need doing, most urgent first. Each links to where to fix it.
@@ -83,7 +83,15 @@ function looseEnds(d) {
   for (const item of bank.items.filter((i) => i.error)) add('tx', `${item.institution} has stopped sending transactions. It needs you to reconnect.`, 'urgent');
 
   const left = d.budget.leftToAssign;
-  if (left < -0.004) add('budget', `You've assigned ${money(-left)} more than you have. Take it back out of an envelope.`, 'urgent');
+  if (left < -0.004) {
+    // Planning ahead of a paycheck isn't a problem; assigning more than
+    // even the expected pay will cover is.
+    const lastAssigned = db.all('assign').filter((a) => Number(a.amount) > 0).reduce((max, a) => (a.week > max ? a.week : max), '');
+    const horizon = lastAssigned && budgetPeriod(lastAssigned).end > d.periodEnd ? budgetPeriod(lastAssigned).end : d.periodEnd;
+    const coming = expectedIncome(db.all('paycheck'), d.txs, d.periodStart, horizon, d.now).reduce((sum, e) => sum + e.amount, 0);
+    if (left + coming >= -0.004) add('budget', `You've planned ${money(-left)} ahead of pay that's still to come. It isn't there to spend until it arrives.`, 'info');
+    else add('budget', `You've assigned ${money(-left - coming)} more than you ${coming > 0 ? 'will have, even with expected pay' : 'have'}. Take it back out of an envelope.`, 'urgent');
+  }
   const overspent = d.live.filter((e) => d.budget.rows.get(e.id).available < -0.004);
   if (overspent.length) {
     add('budget', `Overspent: ${overspent.map((e) => `${e.name} (${money(-d.budget.rows.get(e.id).available)})`).join(', ')}. Cover ${overspent.length === 1 ? 'it' : 'them'} from another envelope.`, 'urgent');
@@ -246,7 +254,7 @@ export function renderOverview() {
       'div',
       { class: 'tiles' },
       tile('In the bank', money(d.cash), d.cardsOwed > 0.004 ? `${money(d.cardsOwed)} owed on cards` : plural(d.accounts.filter((a) => a.type !== 'credit').length, 'account'), 'tx', 'bank'),
-      tile('Left to assign', money(left), left < -0.004 ? 'More assigned than you have' : left > 0.004 ? 'Waiting for a job' : 'Every dollar has a job', 'budget', 'budget'),
+      tile('Left to assign', money(left), left < -0.004 ? (ends.some((e) => e.text.startsWith("You've planned")) ? 'Planned ahead of pay' : 'More assigned than you have') : left > 0.004 ? 'Waiting for a job' : 'Every dollar has a job', 'budget', 'budget'),
       tile('Due in 7 days', money(dueTotal), d.overdue.length ? `${plural(d.dueSoon.length + d.overdue.length, 'bill')}, ${d.overdue.length} overdue` : plural(d.dueSoon.length, 'bill'), 'bills', 'bills'),
       tile('Debt', money(debtTotal), plan && !plan.never ? `Debt-free about ${when(plan.months)}` : plural(d.owing.length, 'debt'), 'debts', 'debts')
     ),
