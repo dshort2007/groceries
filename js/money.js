@@ -714,3 +714,23 @@ export function expectedIncome(paychecks, transactions, from, to, now) {
   }
   return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
+
+// ---------- Getting to the next payday ----------
+
+// Is there enough in the bank for the bills that fall due before the next
+// paycheck? Returns the next payday, those bills, and what would be left.
+// A bill due on payday itself is left to that paycheck. Returns null when
+// no paydays are set up or none is coming in the next six weeks.
+export function untilPayday(paychecks, bills, transactions, cash, now) {
+  // Start a few days back, so a paycheck that's running late still counts
+  // as the next one until it lands.
+  const next = expectedIncome(paychecks, transactions, addDays(now, -3), addDays(now, 45), now)[0];
+  if (!next) return null;
+  const cutoff = next.date > now ? next.date : addDays(now, 1);
+  const due = bills
+    .filter((b) => b.nextDue && Number(b.amount) > 0 && b.nextDue < cutoff)
+    .map((b) => ({ id: b.id, name: b.name, amount: Number(b.amount), date: b.nextDue, overdue: b.nextDue < now }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const billsTotal = round2(due.reduce((sum, b) => sum + b.amount, 0));
+  return { next, late: next.date < now, days: Math.max(0, Math.round((Date.parse(next.date) - Date.parse(now)) / 86400000)), bills: due, billsTotal, cash: round2(cash), left: round2(cash - billsTotal) };
+}

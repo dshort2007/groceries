@@ -629,3 +629,6 @@ input[type="date"] { cursor: pointer; }
 /* ---------- Expected income on the budget ---------- */
 .left.ahead { background: var(--warn-soft); border-color: transparent; }
 .expected { display: grid; gap: 3px; margin: 10px 0 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+
+.payday { display: block; width: 100%; text-align: left; font: inherit; color: inherit; }
+.payday h2 { margin-bottom: 2px; }

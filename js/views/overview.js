@@ -3,7 +3,7 @@
 // tabs show; nothing is stored.
 
 import { h, icon, money, goTo } from '../ui.js';
-import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly, goalStatus, suggestBills, priceChanges, expectedIncome } from '../money.js';
+import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly, goalStatus, suggestBills, priceChanges, expectedIncome, untilPayday } from '../money.js';
 import { bankSummary } from './bank.js';
 import { budgetPeriod } from './shared.js';
 import { when, span, SETTINGS_ID, debtStrategy, planPayment } from './debts.js';
@@ -47,12 +47,15 @@ function gather() {
 
   // Several bills can share an envelope, so compare each envelope with
   // everything coming out of it in the next week.
+  // What each envelope will hold a week from now, counting money already
+  // assigned to a week or month that starts before then.
+  const byThen = budgetFor({ envelopes, transactions: txs, assignments: db.all('assign'), accounts }, week, soon > periodEnd ? soon : periodEnd);
   const needed = new Map();
   for (const b of [...overdue, ...dueSoon]) {
     if (b.envelopeId) needed.set(b.envelopeId, (needed.get(b.envelopeId) || 0) + (Number(b.amount) || 0));
   }
   const shortEnvelopes = [...needed]
-    .map(([id, need]) => ({ envelope: db.get(id), need, have: budget.rows.get(id)?.available ?? 0 }))
+    .map(([id, need]) => ({ envelope: db.get(id), need, have: byThen.rows.get(id)?.available ?? 0 }))
     .filter((x) => x.envelope && x.have < x.need - 0.004);
 
   const debts = db.all('debt').map((d) => ({ ...d, ...debtStatus(d, txs), statement: Number(d.balance) || 0 }));
@@ -69,7 +72,15 @@ function gather() {
     for (const p of parts(t)) if (groupOf.has(p.envelopeId)) group(groupOf.get(p.envelopeId)).spent -= p.amount;
   }
 
-  return { periodStart: week, periodEnd, periodWord: periodEnd > addDays(week, 7) ? 'month' : 'week', now, month, live, txs, accounts, budget, cash, cardsOwed, bills, overdue, dueSoon, shortEnvelopes, debts, owing, extra, groups: [...groups.values()], sum };
+  // Pay expected before this week or month ends, and whether the plan is
+  // covered once it arrives. Money assigned to later periods is set aside.
+  const paychecks = db.all('paycheck');
+  const expected = expectedIncome(paychecks, txs, week, periodEnd, now);
+  const coming = expected.reduce((total, e) => total + e.amount, 0);
+  const afterPay = Math.round((budget.leftToAssign + budget.assignedLater + coming) * 100) / 100;
+  const payday = untilPayday(paychecks, bills, txs, cash, now);
+
+  return { expected, coming, afterPay, payday, hasPaydays: paychecks.length > 0, periodStart: week, periodEnd, periodWord: periodEnd > addDays(week, 7) ? 'month' : 'week', now, month, live, txs, accounts, budget, cash, cardsOwed, bills, overdue, dueSoon, shortEnvelopes, debts, owing, extra, groups: [...groups.values()], sum };
 }
 
 // Things that need doing, most urgent first. Each links to where to fix it.
@@ -86,9 +97,14 @@ function looseEnds(d) {
   if (left < -0.004) {
     // Planning ahead of a paycheck isn't a problem; assigning more than
     // even the expected pay will cover is.
-    const coming = expectedIncome(db.all('paycheck'), d.txs, d.periodStart, d.periodEnd, d.now).reduce((sum, e) => sum + e.amount, 0) + d.budget.assignedLater;
-    if (left + coming >= -0.004) add('budget', `You've planned ${money(-left)} ahead of pay that's still to come. It isn't there to spend until it arrives.`, 'info');
-    else add('budget', `You've assigned ${money(-left - coming)} more than you ${coming > 0 ? 'will have, even with expected pay' : 'have'}. Take it back out of an envelope.`, 'urgent');
+    if (d.afterPay >= -0.004) {
+      add('budget', d.budget.assignedLater > 0 ? `You've assigned ${money(d.budget.assignedLater)} ahead to a later ${d.periodWord}, so Left to assign shows ${money(left)} until that pay arrives.` : `You've planned ${money(-left)} ahead of pay that's still to come. It isn't there to spend until it arrives.`, 'info');
+    }
+    else add('budget', `You've assigned ${money(-d.afterPay)} more than you'll have this ${d.periodWord}${d.coming > 0 ? ', even with expected pay' : ''}. Take it back out of an envelope, or move it to a later ${d.periodWord}.`, 'urgent');
+  }
+  // The cash check: bills that fall due before the next paycheck lands.
+  if (d.payday && d.payday.left < -0.004) {
+    add('bills', `Bills due before your next paycheck come to ${money(d.payday.billsTotal)}, and there's ${money(d.payday.cash)} in the bank: ${money(-d.payday.left)} short.`, 'urgent');
   }
   const overspent = d.live.filter((e) => d.budget.rows.get(e.id).available < -0.004);
   if (overspent.length) {
@@ -197,6 +213,26 @@ function renderSpending(d) {
   );
 }
 
+// Cash in the bank against the bills due before the next paycheck.
+function renderPayday(d) {
+  const p = d.payday;
+  if (!p) return null;
+  const day = (date) => new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const when = p.late ? `was due ${day(p.next.date)}` : p.days === 0 ? 'today' : p.days === 1 ? 'tomorrow' : `${day(p.next.date)}, in ${p.days} days`;
+  return h(
+    'button',
+    { class: 'card payday' + (p.left < -0.004 ? ' overdue' : ''), onclick: () => goTo('bills') },
+    h('h2', {}, 'Until next payday'),
+    h('div', { class: 'muted small' }, `${p.next.name}, ${money(p.next.amount)}, ${when}`),
+    h('div', { class: 'pay-totals' },
+      h('div', { class: 'tx-line' }, h('span', {}, 'In the bank now'), h('span', {}, money(p.cash))),
+      h('div', { class: 'tx-line' }, h('span', {}, p.bills.length ? `${plural(p.bills.length, 'bill')} due before then` : 'No bills due before then'), h('span', {}, p.bills.length ? `−${money(p.billsTotal)}` : money(0))),
+      p.bills.length > 0 && h('div', { class: 'muted small' }, p.bills.slice(0, 5).map((b) => b.name).join(', ') + (p.bills.length > 5 ? ` and ${p.bills.length - 5} more` : '')),
+      h('div', { class: 'tx-line' }, h('strong', {}, p.left < -0.004 ? 'Short by' : 'Left after those bills'), h('strong', { class: p.left < -0.004 ? 'neg' : 'pos' }, money(Math.abs(p.left))))
+    )
+  );
+}
+
 // Savings goals and how far along each one is.
 function renderGoals(d) {
   const goals = d.live
@@ -252,7 +288,7 @@ export function renderOverview() {
       'div',
       { class: 'tiles' },
       tile('In the bank', money(d.cash), d.cardsOwed > 0.004 ? `${money(d.cardsOwed)} owed on cards` : plural(d.accounts.filter((a) => a.type !== 'credit').length, 'account'), 'tx', 'bank'),
-      tile('Left to assign', money(left), left < -0.004 ? (ends.some((e) => e.text.startsWith("You've planned")) ? 'Planned ahead of pay' : 'More assigned than you have') : left > 0.004 ? 'Waiting for a job' : 'Every dollar has a job', 'budget', 'budget'),
+      tile('Left to assign', money(left), left > 0.004 ? 'Waiting for a job' : left >= -0.004 ? 'Every dollar has a job' : d.afterPay >= -0.004 ? (d.coming > 0 ? `Covered by pay due this ${d.periodWord}` : `Assigned ahead to a later ${d.periodWord}`) : `${money(-d.afterPay)} short this ${d.periodWord}`, 'budget', 'budget'),
       tile('Due in 7 days', money(dueTotal), d.overdue.length ? `${plural(d.dueSoon.length + d.overdue.length, 'bill')}, ${d.overdue.length} overdue` : plural(d.dueSoon.length, 'bill'), 'bills', 'bills'),
       tile('Debt', money(debtTotal), plan && !plan.never ? `Debt-free about ${when(plan.months)}` : plural(d.owing.length, 'debt'), 'debts', 'debts')
     ),
@@ -264,6 +300,7 @@ export function renderOverview() {
         ? h('p', { class: 'muted' }, 'Nothing needs your attention right now.')
         : ends.map((e) => h('button', { class: 'end', onclick: () => goTo(e.tab) }, h('span', { class: 'dot ' + e.level, 'aria-hidden': 'true' }), h('span', {}, e.text), h('span', { class: 'muted', 'aria-hidden': 'true' }, '›')))
     ),
+    renderPayday(d),
     renderGoals(d),
     renderSpending(d),
     ideas.length > 0 && h('div', { class: 'card' }, h('h2', {}, 'Worth a look'), h('ul', { class: 'ideas' }, ideas.map((text) => h('li', {}, text)))),

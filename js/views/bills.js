@@ -194,11 +194,16 @@ function renderCalendar() {
   const now = today();
   const weekEnd = addDays(weekStart(now), 6);
   const monthOut = addDays(now, 30);
-  const budget = budgetFor(
-    { envelopes: db.all('envelope'), transactions: db.all('tx'), assignments: db.all('assign'), accounts: db.all('account') },
-    budgetPeriod(now).start,
-    budgetPeriod(now).end
-  );
+  // What each bill's envelope will hold on the day it's due: money assigned
+  // to a week or month starting on or before that day counts.
+  const budgetData = { envelopes: db.all('envelope'), transactions: db.all('tx'), assignments: db.all('assign'), accounts: db.all('account') };
+  const period = budgetPeriod(now);
+  const budgets = new Map();
+  const availableFor = (b) => {
+    const until = b.nextDue > period.end ? b.nextDue : period.end;
+    if (!budgets.has(until)) budgets.set(until, budgetFor(budgetData, period.start, until));
+    return budgets.get(until).rows.get(b.envelopeId)?.available;
+  };
 
   const txs = db.all('tx');
   const perEnvelope = new Map();
@@ -295,7 +300,7 @@ function renderCalendar() {
       'section',
       { class: 'card' + (title === 'Overdue' ? ' overdue' : '') },
       h('div', { class: 'list-head' }, h('h2', {}, title), h('span', { class: 'muted' }, money(total(list)))),
-      list.map((b) => renderBill(b, budget.rows.get(b.envelopeId)?.available, findPayment(b, txs, (perEnvelope.get(b.envelopeId) || 0) > 1)))
+      list.map((b) => renderBill(b, availableFor(b), findPayment(b, txs, (perEnvelope.get(b.envelopeId) || 0) > 1)))
     );
   });
 
@@ -361,7 +366,7 @@ function renderCalendar() {
       'section',
       { class: 'card' },
       h('div', { class: 'list-head' }, h('h2', {}, sortBy === 'payTo' ? 'By who it\'s paid to' : 'By name'), h('span', { class: 'muted' }, money(total(bills)))),
-      [...bills].sort((a, b) => text(a).localeCompare(text(b))).map((b) => renderBill(b, budget.rows.get(b.envelopeId)?.available, findPayment(b, txs, (perEnvelope.get(b.envelopeId) || 0) > 1)))
+      [...bills].sort((a, b) => text(a).localeCompare(text(b))).map((b) => renderBill(b, availableFor(b), findPayment(b, txs, (perEnvelope.get(b.envelopeId) || 0) > 1)))
     );
 
   return [

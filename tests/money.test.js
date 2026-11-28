@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf, suggestBills, priceChanges, netWorth, expectedIncome } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf, suggestBills, priceChanges, netWorth, expectedIncome, untilPayday } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -439,4 +439,39 @@ test('counts pay that is expected but has not arrived yet', () => {
   assert.deepEqual(expectedIncome(paychecks, [], '2026-12-01', '2026-12-31', '2026-12-20').map((e) => e.date), ['2026-12-25', '2026-12-31']);
   // A week with no payday in it expects nothing.
   assert.deepEqual(expectedIncome(paychecks, [], '2026-12-04', '2026-12-10', '2026-12-04'), []);
+});
+
+test('checks the bank balance against bills due before the next paycheck', () => {
+  const paychecks = [{ name: 'Church', amount: 2489.77, nextDate: '2026-12-04', days: 14 }, { name: 'Schools', amount: 1102, monthDays: [31] }];
+  const bills = [
+    { id: 'rent', name: 'Rent', amount: 2145, nextDue: '2026-12-01' },
+    { id: 'gym', name: 'Gym', amount: 35, nextDue: '2026-11-20' }, // overdue
+    { id: 'net', name: 'Internet', amount: 60.22, nextDue: '2026-12-04' }, // on payday: that check covers it
+    { id: 'later', name: 'Loan', amount: 475.54, nextDue: '2026-12-26' },
+    { id: 'blank', name: 'No amount', amount: 0, nextDue: '2026-11-30' },
+  ];
+  // Nov 28: the school paycheck on Nov 30 comes first.
+  const first = untilPayday(paychecks, bills, [], 1582.27, '2026-11-28');
+  assert.deepEqual(first.next, { date: '2026-11-30', name: 'Schools', amount: 1102 });
+  assert.equal(first.days, 2);
+  assert.deepEqual(first.bills.map((b) => [b.name, b.overdue]), [['Gym', true]]);
+  assert.equal(first.left, 1547.27);
+
+  // Dec 1, with that check in: next is Church on the 4th, and rent falls before it.
+  const schoolPay = { id: 's', date: '2026-11-30', amount: 1102, envelopeId: 'income' };
+  const second = untilPayday(paychecks, bills, [schoolPay], 2684.27, '2026-12-01');
+  assert.equal(second.next.name, 'Church');
+  assert.deepEqual(second.bills.map((b) => b.name), ['Gym', 'Rent']);
+  assert.equal(second.billsTotal, 2180);
+  assert.equal(second.left, 504.27);
+  // With less in the bank, it comes up short.
+  assert.equal(untilPayday(paychecks, bills, [schoolPay], 1500, '2026-12-01').left, -680);
+
+  // A paycheck that's a day late still counts as the next one.
+  const late = untilPayday(paychecks, bills, [], 100, '2026-12-01');
+  assert.equal(late.next.name, 'Schools');
+  assert.equal(late.late, true);
+  assert.equal(late.days, 0);
+
+  assert.equal(untilPayday([], bills, [], 100, '2026-12-01'), null);
 });
