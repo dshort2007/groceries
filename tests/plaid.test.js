@@ -12,7 +12,7 @@ import { payeeKey as appPayeeKey } from '../js/money.js';
 // The function is written for Supabase's runtime; load a copy here.
 const copy = join(mkdtempSync(join(tmpdir(), 'plaid-')), 'fn.mjs');
 copyFileSync(new URL('../supabase/functions/plaid/index.ts', import.meta.url), copy);
-const { syncItem, payeeKey, uuidFor, makePlaid } = await import(pathToFileURL(copy));
+const { syncItem, payeeKey, uuidFor, makePlaid, withBalances } = await import(pathToFileURL(copy));
 
 const bank = (id, date, amount, name, extra = {}) => ({ transaction_id: id, account_id: 'acct-chk', date, amount, name, pending: false, ...extra });
 const item = { item_id: 'item1', access_token: 'secret-token', cursor: null, start_date: '2026-11-27' };
@@ -164,4 +164,14 @@ test('payee simplification matches the app, and Plaid errors carry their code', 
   await assert.rejects(plaid('/transactions/sync', { access_token: 'a' }), (e) => e.code === 'ITEM_LOGIN_REQUIRED');
   assert.deepEqual(seen[0], ['https://sandbox.plaid.com/transactions/sync', { client_id: 'id', secret: 'sec', access_token: 'a' }]);
   assert.throws(() => makePlaid({ PLAID_ENV: 'sandbox' }), /not set/);
+});
+
+test("a bank's balances are refreshed, keeping the old ones if the bank doesn't answer", () => {
+  const stored = [{ id: 'a1', name: 'Checking', balance: 100 }, { id: 'a2', name: 'Savings', balance: 2.93 }];
+  const fresh = [{ account_id: 'a2', balances: { current: 4.05, available: 4.05 } }, { account_id: 'a1', balances: { current: 80, available: 62.5 } }];
+  const out = withBalances(stored, fresh);
+  assert.deepEqual(out.map((a) => [a.id, a.balance, a.available]), [['a1', 80, 62.5], ['a2', 4.05, 4.05]]);
+  assert.ok(out[0].balanceAt);
+  assert.equal(withBalances(stored, undefined), stored);
+  assert.equal(withBalances(stored, [{ account_id: 'other', balances: {} }])[0], stored[0]);
 });

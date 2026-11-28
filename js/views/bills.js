@@ -3,7 +3,7 @@
 
 import { h, money, num, numberField, rerender } from '../ui.js';
 import { today, addDays, weekStart, budgetFor, dueAfter, billEstimate, findPayment, billMonthly } from '../money.js';
-import { envelopeSelect, accountSelect } from './shared.js';
+import { envelopeSelect, accountSelect, budgetPeriod } from './shared.js';
 import { renderPaychecks } from './paychecks.js';
 import * as db from '../db.js';
 
@@ -194,7 +194,8 @@ function renderCalendar() {
   const monthOut = addDays(now, 30);
   const budget = budgetFor(
     { envelopes: db.all('envelope'), transactions: db.all('tx'), assignments: db.all('assign'), accounts: db.all('account') },
-    weekStart(now)
+    budgetPeriod(now).start,
+    budgetPeriod(now).end
   );
 
   const txs = db.all('tx');

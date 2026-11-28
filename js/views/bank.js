@@ -4,7 +4,7 @@
 // (supabase/functions/plaid).
 
 import { h, money, rerender, rerenderWhenIdle } from '../ui.js';
-import { today } from '../money.js';
+import { today, accountBalances } from '../money.js';
 import { accounts } from './shared.js';
 import * as db from '../db.js';
 
@@ -12,7 +12,7 @@ const LINK_KEY = 'plaid-link';
 const PLAID_SCRIPT = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
 
 // The version of supabase/functions/plaid/index.ts this app expects.
-const FUNCTION_VERSION = 2;
+const FUNCTION_VERSION = 3;
 
 const state = { loaded: false, available: false, outdated: false, problem: '', items: [], busy: '', message: '' };
 let startDate = today();
@@ -174,6 +174,14 @@ export function resumeBankLink() {
   if (saved) openLink(saved, returnedTo).catch((err) => { state.message = err.message; rerender(); });
 }
 
+// The bank's balance for one of its accounts, the way the app counts it:
+// what's available (so pending purchases are already off), and negative for
+// money owed on a card.
+function bankSays(bankAccount) {
+  if (bankAccount.type === 'credit') return -Math.abs(Number(bankAccount.balance) || 0);
+  return Number(bankAccount.available ?? bankAccount.balance) || 0;
+}
+
 // Choose which of the app's accounts a bank account is.
 function setMatch(bankAccount, institution, choice) {
   const current = accounts().find((a) => a.plaidAccountId === bankAccount.id);
@@ -183,11 +191,16 @@ function setMatch(bankAccount, institution, choice) {
   }
   if (choice === 'new') {
     const credit = bankAccount.type === 'credit';
-    const balance = Number(bankAccount.balance) || 0;
+    // Start the account so that it agrees with the bank right now. Any of
+    // its transactions already brought in are inside the bank's balance, so
+    // take them back out of the starting figure or they'd count twice.
+    const bank = bankSays(bankAccount);
+    const alreadyIn = db.all('tx').filter((t) => t.plaidAccountId === bankAccount.id).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    const startBalance = Math.round((bank - alreadyIn) * 100) / 100;
     db.put('account', {
       name: `${institution} ${bankAccount.name}${bankAccount.mask ? ' ••' + bankAccount.mask : ''}`,
       type: credit ? 'credit' : bankAccount.subtype === 'savings' ? 'savings' : 'checking',
-      startBalance: credit ? -Math.abs(balance) : balance,
+      startBalance,
       startDate: today(),
       plaidAccountId: bankAccount.id,
       sort: Date.now(),
@@ -195,7 +208,13 @@ function setMatch(bankAccount, institution, choice) {
   } else if (choice) {
     db.put('account', { ...db.get(choice), plaidAccountId: bankAccount.id });
   }
-  fillInAccounts();
+  // Its transactions follow it to whichever account it's matched to now.
+  const now = accounts().find((a) => a.plaidAccountId === bankAccount.id);
+  if (now) {
+    for (const t of db.all('tx')) {
+      if (t.plaidAccountId === bankAccount.id && t.accountId !== now.id) db.put('tx', { ...t, accountId: now.id });
+    }
+  }
   rerender();
 }
 
@@ -206,6 +225,7 @@ const PROBLEMS = {
 
 function renderItem(item) {
   const mine = accounts();
+  const balances = accountBalances(mine, db.all('tx'));
   return h(
     'div',
     { class: 'tx bank' },
@@ -219,10 +239,31 @@ function renderItem(item) {
       h('div', { class: 'tx-line' }, h('span', { class: 'warn' }, PROBLEMS[item.error] || `Problem: ${item.error}`), h('button', { onclick: () => connect(item.item_id) }, 'Reconnect')),
     item.accounts.map((a) => {
       const matched = mine.find((m) => m.plaidAccountId === a.id);
-      return h(
+      // When the app's balance has drifted from the bank's, say so and
+      // offer to correct it in one tap.
+      const appHas = matched ? balances.get(matched.id) : null;
+      const diff = matched && a.balance !== null ? Math.round((bankSays(a) - appHas) * 100) / 100 : 0;
+      const drift =
+        diff !== 0 &&
+        h(
+          'div',
+          { class: 'found warn-box' },
+          h('span', {}, `The bank says ${money(bankSays(a))}; the app has ${money(appHas)}.`),
+          h(
+            'button',
+            {
+              onclick: () => {
+                db.put('tx', { date: today(), payee: 'Balance correction', amount: diff, envelopeId: '', accountId: matched.id, created: Date.now() });
+                rerender();
+              },
+            },
+            'Match the bank'
+          )
+        );
+      return [h(
         'label',
         { class: 'field' },
-        h('span', {}, `${a.name}${a.mask ? ' ••' + a.mask : ''}${a.balance !== null ? ' · ' + money(a.balance) : ''}`),
+        h('span', {}, `${a.name}${a.mask ? ' ••' + a.mask : ''}${a.balance !== null ? ' · bank says ' + money(Math.abs(bankSays(a))) : ''}`),
         h(
           'select',
           { class: matched ? null : 'unfiled', onchange: (e) => setMatch(a, item.institution, e.target.value) },
@@ -230,7 +271,7 @@ function renderItem(item) {
           mine.filter((m) => !m.plaidAccountId || m.id === matched?.id).map((m) => h('option', { value: m.id, selected: m.id === matched?.id }, m.name)),
           h('option', { value: 'new' }, 'Add it as a new account')
         )
-      );
+      ), drift];
     }),
     h('p', { class: 'muted small' }, `Bringing in transactions from ${item.start_date} on.`),
     h(

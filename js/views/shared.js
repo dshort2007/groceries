@@ -1,6 +1,7 @@
 // Pickers used on more than one tab.
 
 import { h } from '../ui.js';
+import { periodOf } from '../money.js';
 import * as db from '../db.js';
 
 const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
@@ -38,3 +39,11 @@ export function accountSelect(value, onchange, { key, blank = 'No account', labe
 
 export const envelopeName = (id) =>
   id === 'income' ? 'Income' : id === 'transfer' ? 'Transfer' : db.get(id)?.name || 'No envelope';
+
+// Whether the family budgets by the week or by the month. Shared by
+// everyone, since it decides how money gets assigned.
+const SETTINGS = '00000000-0000-4000-8000-000000000002';
+export const budgetMode = () => (db.get(SETTINGS)?.budgetPeriod === 'month' ? 'month' : 'week');
+export const setBudgetMode = (mode) => db.put('settings', { ...db.get(SETTINGS), id: SETTINGS, budgetPeriod: mode });
+// The budget period a date falls in, under the family's choice.
+export const budgetPeriod = (date) => periodOf(date, budgetMode());

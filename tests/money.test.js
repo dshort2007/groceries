@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport } from '../js/money.js';
+import { weekStart, addDays, addMonths, budgetFor, payoffPlan, readBankCsv, parseCsv, payeeKey, parts, accountBalances, dueAfter, debtStatus, monthlyTargets, billEstimate, findPayment, splitJob, billMonthly, occurrences, paycheckPlan, goalStatus, monthsEnding, monthlyReport, periodOf } from '../js/money.js';
 
 test('weeks start on Friday', () => {
   assert.equal(weekStart('2026-11-27'), '2026-11-27'); // a Friday
@@ -31,7 +31,7 @@ const data = {
 };
 
 test('income minus everything assigned is left to assign', () => {
-  assert.equal(budgetFor(data, '2026-11-20').leftToAssign, 750);
+  assert.equal(budgetFor(data, '2026-11-20').leftToAssign, 650); // 1000 in, 350 assigned including next week's 100
   assert.equal(budgetFor(data, '2026-11-27').leftToAssign, 1150);
 });
 
@@ -126,7 +126,7 @@ test('money already in the bank is available to assign; card debt is not', () =>
     { id: 'card', type: 'credit', startBalance: -900, startDate: '2026-11-27' },
   ];
   assert.equal(budgetFor({ ...data, accounts }, '2026-11-27').leftToAssign, 1550); // 1150 + 400
-  assert.equal(budgetFor({ ...data, accounts }, '2026-11-20').leftToAssign, 750); // before it existed
+  assert.equal(budgetFor({ ...data, accounts }, '2026-11-20').leftToAssign, 650); // before it existed
 });
 
 test('account balances are the starting balance plus every transaction', () => {
@@ -274,10 +274,11 @@ test('lines bills up against paydays', () => {
 
 test('works out what a savings goal needs each week', () => {
   assert.equal(goalStatus({ amount: 0 }, 50, '2026-11-28'), null);
-  assert.deepEqual(goalStatus({ amount: 1000 }, 250, '2026-11-28'), { target: 1000, remaining: 750, share: 0.25, reached: false, perWeek: null, weeksLeft: null, late: false });
+  assert.deepEqual(goalStatus({ amount: 1000 }, 250, '2026-11-28'), { target: 1000, remaining: 750, share: 0.25, reached: false, perWeek: null, perMonth: null, weeksLeft: null, late: false });
   const dated = goalStatus({ amount: 1000, date: '2027-01-09' }, 250, '2026-11-28');
   assert.equal(dated.weeksLeft, 6);
   assert.equal(dated.perWeek, 125);
+  assert.equal(dated.perMonth, 375); // two months left
   assert.equal(goalStatus({ amount: 1000, date: '2026-11-01' }, 250, '2026-11-28').late, true);
   assert.equal(goalStatus({ amount: 1000, date: '2027-01-09' }, 1200, '2026-11-28').reached, true);
   assert.equal(goalStatus({ amount: 1000 }, -40, '2026-11-28').remaining, 1000); // overspent counts as empty
@@ -334,4 +335,24 @@ test('a pay schedule can end and a new one begin', () => {
     ['2027-01-31', 3620, 'New+Hers'],
   ]);
   assert.deepEqual(plan[2].bills.map((b) => b.name), ['Rent']); // her month-end pay covers rent on the 1st
+});
+
+test('the budget can be looked at a month at a time', () => {
+  assert.deepEqual(periodOf('2026-11-28', 'week'), { start: '2026-11-27', end: '2026-12-03' });
+  assert.deepEqual(periodOf('2026-11-28', 'month'), { start: '2026-11-01', end: '2026-11-30' });
+  assert.deepEqual(periodOf('2028-02-10', 'month'), { start: '2028-02-01', end: '2028-02-29' });
+
+  // The same data as the weekly tests above, seen as the month of November.
+  const nov = budgetFor(data, '2026-11-01', '2026-11-30');
+  assert.equal(nov.leftToAssign, 1150); // 1500 income, 350 assigned
+  assert.deepEqual(nov.rows.get('groc'), { assigned: 300, assignedMonth: 300, spent: 210, available: 90 });
+  assert.equal(nov.incomeThisWeek, 1500);
+
+  // A monthly assignment dated the 1st counts for that whole month, and
+  // shows up in whichever week holds the 1st when looking week by week.
+  const more = { ...data, assignments: [...data.assignments, { week: '2026-12-01', envelopeId: 'gas', amount: 80 }] };
+  assert.equal(budgetFor(more, '2026-11-01', '2026-11-30').rows.get('gas').available, 50);
+  assert.equal(budgetFor(more, '2026-12-01', '2026-12-31').rows.get('gas').assigned, 80);
+  assert.equal(budgetFor(more, '2026-12-01', '2026-12-31').rows.get('gas').available, 130);
+  assert.equal(budgetFor(more, '2026-11-27').rows.get('gas').assigned, 80);
 });

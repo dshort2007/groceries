@@ -35,6 +35,17 @@ export function addMonths(date, months, day = Number(date.slice(8))) {
   return `${year}-${pad(month)}-${pad(Math.min(day, last))}`;
 }
 
+// The budget period a date falls in: a week starting Friday, or a calendar
+// month. Returns its first and last day.
+export function periodOf(date, mode) {
+  if (mode === 'month') {
+    const start = date.slice(0, 7) + '-01';
+    return { start, end: addDays(addMonths(start, 1), -1) };
+  }
+  const start = weekStart(date);
+  return { start, end: addDays(start, 6) };
+}
+
 // ---------- Transactions ----------
 
 // A purchase can be split across envelopes ($80 at Walmart: $60 groceries,
@@ -71,8 +82,9 @@ export function accountBalances(accounts, transactions) {
 //     income too: it's yours to assign. Credit cards don't, they're debt.
 // An envelope's balance carries forward forever; the week is just the lens.
 
-export function budgetFor({ envelopes, transactions, assignments, accounts = [] }, week) {
-  const end = addDays(week, 6);
+// `week` is the first day of the period being looked at and `end` its last
+// day: a week by default, or a whole month when budgeting monthly.
+export function budgetFor({ envelopes, transactions, assignments, accounts = [] }, week, end = addDays(week, 6)) {
   const month = week.slice(0, 7);
   const rows = new Map(
     envelopes.map((e) => [e.id, { assigned: 0, assignedMonth: 0, spent: 0, available: 0 }])
@@ -84,13 +96,16 @@ export function budgetFor({ envelopes, transactions, assignments, accounts = [] 
   let needsEnvelope = 0;
 
   for (const a of assignments) {
-    if (a.week > week) continue;
     const amount = Number(a.amount) || 0;
+    // Money assigned to a later week or month is spoken for too, so it
+    // comes off what's left to assign. It only reaches the envelope's
+    // balance once that period arrives.
     assignedTotal += amount;
+    if (a.week > end) continue;
     const row = rows.get(a.envelopeId);
     if (!row) continue;
     row.available += amount;
-    if (a.week === week) row.assigned += amount;
+    if (a.week >= week) row.assigned += amount;
     if (a.week.slice(0, 7) === month) row.assignedMonth += amount;
   }
 
@@ -498,12 +513,13 @@ export function goalStatus(goal, available, now) {
   if (target <= 0) return null;
   const have = Math.max(0, Number(available) || 0);
   const remaining = round2(Math.max(0, target - have));
-  const status = { target, remaining, share: Math.min(1, have / target), reached: remaining === 0, perWeek: null, weeksLeft: null, late: false };
+  const status = { target, remaining, share: Math.min(1, have / target), reached: remaining === 0, perWeek: null, perMonth: null, weeksLeft: null, late: false };
   if (goal.date && !status.reached) {
     const days = Math.round((Date.parse(goal.date) - Date.parse(now)) / 86400000);
     status.late = days < 0;
     status.weeksLeft = Math.max(1, Math.ceil(days / 7));
     status.perWeek = round2(remaining / status.weeksLeft);
+    status.perMonth = round2(remaining / Math.max(1, Math.ceil(days / 30.44)));
   }
   return status;
 }

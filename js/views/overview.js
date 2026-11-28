@@ -5,6 +5,7 @@
 import { h, icon, money, goTo } from '../ui.js';
 import { today, addDays, weekStart, budgetFor, accountBalances, debtStatus, payoffPlan, parts, monthlyTargets, billMonthly, goalStatus } from '../money.js';
 import { bankSummary } from './bank.js';
+import { budgetPeriod } from './shared.js';
 import { when, span, SETTINGS_ID, debtStrategy, planPayment } from './debts.js';
 import * as db from '../db.js';
 
@@ -24,7 +25,7 @@ function tile(label, value, note, tab, picture) {
 // Everything the page needs, gathered in one place.
 function gather() {
   const now = today();
-  const week = weekStart(now);
+  const { start: week, end: periodEnd } = budgetPeriod(now);
   const month = now.slice(0, 7);
   const envelopes = db.all('envelope');
   const bills = db.all('bill');
@@ -33,7 +34,7 @@ function gather() {
   const live = envelopes.filter((e) => !e.archived).map((e) => ({ ...e, plan: targets.get(e.id).amount }));
   const txs = db.all('tx');
   const accounts = db.all('account');
-  const budget = budgetFor({ envelopes, transactions: txs, assignments: db.all('assign'), accounts }, week);
+  const budget = budgetFor({ envelopes, transactions: txs, assignments: db.all('assign'), accounts }, week, periodEnd);
   const balances = accountBalances(accounts, txs);
   const sum = (list, fn) => list.reduce((total, x) => total + fn(x), 0);
 

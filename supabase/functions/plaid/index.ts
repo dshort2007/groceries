@@ -14,7 +14,7 @@
 
 // Bump this whenever the function changes, so the app can tell when the
 // copy running on Supabase is out of date.
-export const VERSION = 2;
+export const VERSION = 3;
 
 const HOSTS = {
   sandbox: 'https://sandbox.plaid.com',
@@ -178,6 +178,18 @@ export async function syncItem(item, plaid, store, now = Date.now()) {
   return { changes, cursor, counts };
 }
 
+// Update the stored list of a bank's accounts with its latest balances.
+// "current" is what has cleared; "available" also takes off purchases still
+// pending, which is the closer match to what the app counts.
+export function withBalances(accounts, fresh) {
+  if (!Array.isArray(fresh)) return accounts;
+  const byId = new Map(fresh.map((a) => [a.account_id, a.balances || {}]));
+  return accounts.map((a) => {
+    const b = byId.get(a.id);
+    return b ? { ...a, balance: b.current ?? a.balance, available: b.available ?? null, balanceAt: new Date().toISOString() } : a;
+  });
+}
+
 // ---------- Talking to Plaid and the database ----------
 
 export function makePlaid(env, fetchFn = fetch) {
@@ -282,6 +294,7 @@ async function run(action, body, user, plaid, store) {
         type: a.type,
         subtype: a.subtype,
         balance: a.balances?.current ?? null,
+        available: a.balances?.available ?? null,
       })),
       start_date: /^\d{4}-\d{2}-\d{2}$/.test(body.start_date || '') ? body.start_date : new Date().toISOString().slice(0, 10),
       created_by: user.id,
@@ -319,7 +332,10 @@ async function run(action, body, user, plaid, store) {
       try {
         const { changes, cursor, counts } = await syncItem(item, plaid, store);
         await store.save(changes);
-        const saved = { ...item, cursor, last_sync: new Date().toISOString(), error: null };
+        // Also fetch the bank's current balances, so the app can show when
+        // its own numbers have drifted. If that fails, keep the old ones.
+        const fresh = await plaid('/accounts/get', { access_token: item.access_token }).catch(() => null);
+        const saved = { ...item, accounts: withBalances(item.accounts, fresh?.accounts), cursor, last_sync: new Date().toISOString(), error: null };
         await store.saveItem(saved);
         for (const key of Object.keys(totals)) totals[key] += counts[key];
         results.push(publicItem(saved));
